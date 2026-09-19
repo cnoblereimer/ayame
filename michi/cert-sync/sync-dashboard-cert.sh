@@ -11,6 +11,7 @@ set -euo pipefail
 
 SSH_KEY="/opt/pangolin-cluster/cert-sync/cert-sync-key"
 AYAME_HOST="root@<AYAME_PUBLIC_IP>"
+AYAME_SSH_PORT="<AYAME_SSH_PORT>"
 DEST_DIR="/opt/pangolin-cluster/config/certificates/<DASHBOARD_DOMAIN>"
 
 mkdir -p "$DEST_DIR"
@@ -20,10 +21,10 @@ key_tmp=$(mktemp "$DEST_DIR/.key.pem.tmp.XXXXXX")
 cleanup() { rm -f "$cert_tmp" "$key_tmp"; }
 trap cleanup EXIT
 
-ssh -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
-    "$AYAME_HOST" get-cert >"$cert_tmp"
-ssh -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
-    "$AYAME_HOST" get-key >"$key_tmp"
+ssh -i "$SSH_KEY" -p "$AYAME_SSH_PORT" -o BatchMode=yes -o ConnectTimeout=10 \
+    -o StrictHostKeyChecking=accept-new "$AYAME_HOST" get-cert >"$cert_tmp"
+ssh -i "$SSH_KEY" -p "$AYAME_SSH_PORT" -o BatchMode=yes -o ConnectTimeout=10 \
+    -o StrictHostKeyChecking=accept-new "$AYAME_HOST" get-key >"$key_tmp"
 
 if [ ! -s "$cert_tmp" ] || [ ! -s "$key_tmp" ]; then
     echo "sync-dashboard-cert: refusing to install an empty cert or key" >&2
