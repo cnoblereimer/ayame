@@ -146,6 +146,25 @@ ayame going down entirely still stops the whole cluster (michi has nowhere
 to get data from, and there's no other ingress point) — this fix only
 closes the DNS-specific gap, not that broader one.
 
+## Why `websecure_back`'s health check is an HTTPS request, not a TCP check
+
+A plain TCP check only proves Traefik's port is open — it says nothing
+about whether the actual backend Traefik proxies to is reachable.
+Confirmed live during an HA test: stopping just the `pangolin` container
+(leaving `gerbil`/`traefik` running) left ayame's `websecure_back` server
+looking perfectly healthy to a TCP check, since Traefik itself was still
+listening fine on `8443` — but every real request routed there got a `502`
+from Traefik, since `bootstrap.yml`'s routers proxy to `http://pangolin:3000`/
+`3002`, and pangolin was down. HAProxy kept sending roughly half its
+round-robined traffic into that dead end the whole time. The `option
+httpchk`/`http-check` lines make the check itself an HTTPS `GET /api/v1/`
+with the dashboard domain's `Host` header — the same request path real
+dashboard traffic takes — so the check only reports "up" when pangolin is
+actually answering behind Traefik, not just when Traefik's port happens to
+be open. `check-ssl verify none` lets HAProxy perform this check over TLS
+without needing to trust Traefik's certificate chain, since it's only
+checking for a response, not validating the cert.
+
 ## Why the dashboard cert is synced from ayame to michi
 
 Pangolin's certificate pipeline (`TraefikConfigManager.ts`) is scoped **per
