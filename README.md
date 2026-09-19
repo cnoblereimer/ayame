@@ -64,6 +64,7 @@ setup, so:
 | `POSTGRES_PASSWORD` | `ayame/.env` (copy from `ayame/.env.example`) and `michi/config/config.yml`'s connection string | shared DB password |
 | `pangolin.example.com` | `ayame/config/config.yml`, `michi/config/config.yml` | your real dashboard domain |
 | `<AYAME_SSH_PORT>` | `michi/cert-sync/sync-dashboard-cert.sh` | ayame's SSH port, if not the default `22` |
+| `<AYAME_SSH_USER>` | `michi/cert-sync/sync-dashboard-cert.sh` | a non-root user on ayame with sudo — root login itself may be disabled (`PermitRootLogin no`), so the sync key authenticates as this user and a scoped sudoers rule lets it run the one forced-command script as root |
 | `<DASHBOARD_DOMAIN>` | `ayame/config/dynamic/bootstrap.yml`, `michi/config/dynamic/bootstrap.yml`, `ayame/config/privateConfig.yml`, `michi/config/privateConfig.yml`, `ayame/cert-sync/*`, `michi/cert-sync/*` | same domain as `dashboard_url`, without the scheme |
 
 ## Deploy order
@@ -170,20 +171,36 @@ cat ./cert-sync/cert-sync-key.pub
 
 Copy the printed public key.
 
-**2. On ayame: authorize that key, restricted to the sync script only:**
+**2. On ayame: authorize that key against a non-root user, restricted to the
+sync script only.** If root login is disabled (`PermitRootLogin no` in
+`sshd_config` — check with `grep PermitRootLogin /etc/ssh/sshd_config`), the
+key has to authenticate as a regular sudo-capable user instead; a scoped
+sudoers rule then lets *that one script* run as root without a password,
+which is what it needs to read `key.pem` (mode `600`, root-owned):
 
 ```bash
 chmod +x ./cert-sync/cert-sync-allowed.sh
-mkdir -p /root/.ssh
-echo 'command="'"$(pwd)"'/cert-sync/cert-sync-allowed.sh",no-agent-forwarding,no-X11-forwarding,no-port-forwarding,no-pty PASTE_MICHI_PUBLIC_KEY_HERE' >> /root/.ssh/authorized_keys
-chmod 600 /root/.ssh/authorized_keys
+mkdir -p ~/.ssh
+echo 'command="sudo '"$(pwd)"'/cert-sync/cert-sync-allowed.sh",no-agent-forwarding,no-X11-forwarding,no-port-forwarding,no-pty PASTE_MICHI_PUBLIC_KEY_HERE' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+
+echo "$(whoami) ALL=(root) NOPASSWD: $(pwd)/cert-sync/cert-sync-allowed.sh" | sudo tee /etc/sudoers.d/cert-sync
+sudo chmod 440 /etc/sudoers.d/cert-sync
+sudo visudo -cf /etc/sudoers.d/cert-sync   # validates syntax before it's live
 ```
 
 Replace `PASTE_MICHI_PUBLIC_KEY_HERE` with the full `ssh-ed25519 AAAA...
 michi-cert-sync` line from step 1. This key can only ever run
-`cert-sync-allowed.sh`, which itself only allows reading
+`cert-sync-allowed.sh` (as root, via that one narrowly-scoped sudoers rule),
+which itself only allows reading
 `config/certificates/<dashboard domain>/{cert.pem,key.pem}` — nothing else,
-no shell.
+no shell, and root SSH login stays fully disabled throughout. Set
+`<AYAME_SSH_USER>` in `michi/cert-sync/sync-dashboard-cert.sh` to whichever
+user you ran this as.
+
+If root login is *not* disabled on your ayame, you can skip the sudoers
+step and use `/root/.ssh/authorized_keys` with `command="..."` (no `sudo`
+prefix) instead, with `<AYAME_SSH_USER>` set to `root`.
 
 **3. On michi: do a first sync manually, then enable the timer:**
 

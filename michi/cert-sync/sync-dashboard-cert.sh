@@ -10,7 +10,7 @@
 set -euo pipefail
 
 SSH_KEY="/opt/pangolin-cluster/cert-sync/cert-sync-key"
-AYAME_HOST="root@<AYAME_PUBLIC_IP>"
+AYAME_HOST="<AYAME_SSH_USER>@<AYAME_PUBLIC_IP>"
 AYAME_SSH_PORT="<AYAME_SSH_PORT>"
 DEST_DIR="/opt/pangolin-cluster/config/certificates/<DASHBOARD_DOMAIN>"
 
