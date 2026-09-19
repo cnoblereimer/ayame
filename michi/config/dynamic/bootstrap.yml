@@ -1,0 +1,25 @@
+http:
+  routers:
+    bootstrap-dashboard-api:
+      rule: "Host(`<DASHBOARD_DOMAIN>`) && PathPrefix(`/api/v1`)"
+      entryPoints:
+        - websecure
+      service: bootstrap-dashboard-api-svc
+      priority: 1000
+      tls: {}
+    bootstrap-dashboard-ui:
+      rule: "Host(`<DASHBOARD_DOMAIN>`)"
+      entryPoints:
+        - websecure
+      service: bootstrap-dashboard-ui-svc
+      priority: 999
+      tls: {}
+  services:
+    bootstrap-dashboard-api-svc:
+      loadBalancer:
+        servers:
+          - url: "http://pangolin:3000"
+    bootstrap-dashboard-ui-svc:
+      loadBalancer:
+        servers:
+          - url: "http://pangolin:3002"

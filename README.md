@@ -58,6 +58,7 @@ setup, so:
 | `<CONTACT_EMAIL>` | `config/privateConfig.yml`, `michi/config/privateConfig.yml` | email for ACME/Let's Encrypt |
 | `POSTGRES_PASSWORD` | `.env` (copy from `.env.example`) and `michi/config/config.yml`'s connection string | shared DB password |
 | `pangolin.example.com` | `config/config.yml`, `michi/config/config.yml` | your real dashboard domain |
+| `<DASHBOARD_DOMAIN>` | `config/dynamic/bootstrap.yml`, `michi/config/dynamic/bootstrap.yml` | same domain as `dashboard_url`, without the scheme |
 
 ## Deploy order
 
@@ -73,6 +74,26 @@ setup, so:
 4. Point DNS for your dashboard/resource domains at ayame's HAProxy (or at
    both nodes' IPs via round-robin DNS, if you don't want a single point of
    ingress).
+
+## Why `config/dynamic/bootstrap.yml` exists
+
+Pangolin never generates a Traefik router for its own admin dashboard —
+only for per-resource "login pages", and those require a DB row that
+normally gets created *through the dashboard itself* (a chicken-and-egg gap,
+confirmed by reading `getTraefikConfig.ts`'s `generateLoginPageRouters`
+logic). Without this file, the dashboard domain 404s on Traefik forever,
+even after initial setup. `bootstrap.yml` is a hand-written Traefik dynamic
+config (picked up live via the `file` provider, no restart needed) that
+routes `/api/v1/*` to Pangolin's Dashboard API (`pangolin:3000`) and
+everything else to its Web UI (`pangolin:3002`), bypassing Pangolin's own
+router generation entirely for this one host. It needs to exist identically
+on **both** nodes, since HAProxy round-robins dashboard traffic across
+ayame and michi.
+
+Until a real domain/resource is configured with a valid ACME cert, this
+domain serves Traefik's self-signed fallback certificate — click through
+your browser's warning (and clear any cached HSTS policy for the domain via
+`about:networking#hsts` in Firefox if it refuses to let you).
 
 ## Source
 

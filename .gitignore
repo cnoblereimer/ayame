@@ -1,7 +1,9 @@
 .env
 config/certificates/
-config/dynamic/
+config/dynamic/*
+!config/dynamic/bootstrap.yml
 config/GeoLite2-*.mmdb
 michi/config/certificates/
-michi/config/dynamic/
+michi/config/dynamic/*
+!michi/config/dynamic/bootstrap.yml
 michi/config/GeoLite2-*.mmdb
