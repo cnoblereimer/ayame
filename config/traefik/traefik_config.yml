@@ -43,17 +43,3 @@ serversTransport:
 
 ping:
   entryPoint: "web"
-
-# Native Traefik ACME (HTTP-01), used only for the dashboard domain via
-# bootstrap.yml's certResolver reference. Pangolin's own cert-sync pipeline
-# (cert_mode: pangolin) issues certs fine but never deploys them to a file
-# Traefik can load - this sidesteps that entirely for the one domain that
-# matters before any real resources exist. Resources added later still go
-# through Pangolin's own system, unaffected.
-certificatesResolvers:
-  letsencrypt:
-    acme:
-      email: "<CONTACT_EMAIL>"
-      storage: "/var/certificates/acme.json"
-      httpChallenge:
-        entryPoint: "web"

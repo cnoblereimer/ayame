@@ -99,9 +99,7 @@ services:
     volumes:
       - ./config/traefik:/etc/traefik:ro
       - ./config/traefik/logs:/var/log/traefik
-      # Read-write (not :ro): traefik needs to persist acme.json here for
-      # its own native Let's Encrypt resolver (see traefik_config.yml).
-      - ./config/certificates:/var/certificates
+      - ./config/certificates:/var/certificates:ro
       - ./config/dynamic:/var/dynamic:ro
 
 networks:
