@@ -83,8 +83,11 @@ setup, so:
 4. Point DNS for your dashboard/resource domains at ayame's HAProxy (or at
    both nodes' IPs via round-robin DNS, if you don't want a single point of
    ingress).
-5. Set up the dashboard cert sync (below) so michi serves a real cert
-   instead of Traefik's self-signed fallback.
+5. Put the dashboard cert in `ayame/cert-sync/dashboard-cert/` on ayame
+   (`cert.pem` + `key.pem`) — that directory is gitignored, so a fresh
+   clone starts empty and **both** nodes will serve Traefik's self-signed
+   fallback until it's populated. Then set up the cert sync (below) so
+   michi gets a copy.
 
 ## Why `config/dynamic/bootstrap.yml` exists
 
@@ -122,6 +125,13 @@ chicken-and-egg shape, different layer. The `dns.static_records` entry in
 `config/privateConfig.yml` (and `michi/config/privateConfig.yml`, kept in
 sync) works around it the same way `bootstrap.yml` does for Traefik: a
 hand-written record for the one hostname Pangolin's own logic never covers.
+
+**This has been observed not working.** Pangolin logged `No exit nodes
+found for resource.` followed by `NXDOMAIN for <dashboard domain>` on a
+loop, with the `static_records` entry present in the config. The same
+startup also warned that `acme` had moved out of the private config file,
+so the config schema shifted under us at some point — worth checking
+whether `dns.static_records` still lives where this config puts it.
 
 ## The nameserver hostname needs an A record for both nodes
 
@@ -233,20 +243,26 @@ change on renewal. The sync uses a restricted forced-command SSH key (michi
 can only read those two specific files on ayame, nothing else) rather than
 a general-purpose key.
 
-**The synced files must not land in `config/certificates/`.** That
-directory is also Pangolin's own certificate store, and its janitor
+How this presented, for future reference: roughly half of all HTTPS
+requests failed with no HTTP status at all (`curl` reporting `000`), which
+looked like flaky networking or a load-balancer fault. It was neither —
+every request round-robined onto ayame hit the self-signed cert and was
+rejected client-side, while every request onto michi succeeded. Stopping
+michi took it to 100% failure and finally made it obvious.
+
+**The cert files must not land in `config/certificates/` on either node.**
+That directory is also Pangolin's own certificate store, and its janitor
 (`cleanupUnusedCertificates` in `TraefikConfigManager.ts`) force-deletes
 any domain directory there that isn't one of *this node's own* currently
 active domains, with only a ~15 second grace period — confirmed the hard
-way: the first working sync got deleted by Pangolin's own cleanup within
-about 15 minutes of the sync running, leaving Traefik logging `failed to
-find any PEM data in certificate input` for a file that had simply ceased
-to exist. Michi never has an active domain of its own, so anything synced
-into `config/certificates/` there is on borrowed time no matter how often
-it's re-synced. `cert-sync/synced-certs/` is bind-mounted into the traefik
-container as a *separate* path (`/var/dashboard-cert`, read-only) that
-Pangolin's janitor never scans, and `bootstrap.yml`'s `tls.certificates`
-entry points there instead of into `/var/certificates`.
+way on both hosts: on michi the first working sync got deleted within about
+15 minutes, leaving Traefik logging `failed to find any PEM data in
+certificate input` for a file that had simply ceased to exist; on ayame,
+hand-restored files were gone in under 20 seconds. `cert-sync/synced-certs/`
+on michi and `cert-sync/dashboard-cert/` on ayame are bind-mounted into the
+traefik container as a *separate* path (`/var/dashboard-cert`, read-only)
+that Pangolin's janitor never scans, and each node's `bootstrap.yml`
+`tls.certificates` entry points there instead of into `/var/certificates`.
 
 ### Setup
 
@@ -289,7 +305,7 @@ Replace `PASTE_MICHI_PUBLIC_KEY_HERE` with the full `ssh-ed25519 AAAA...
 michi-cert-sync` line from step 1. This key can only ever run
 `cert-sync-allowed.sh` (as root, via that one narrowly-scoped sudoers rule),
 which itself only allows reading
-`config/certificates/<dashboard domain>/{cert.pem,key.pem}` — nothing else,
+`cert-sync/dashboard-cert/{cert.pem,key.pem}` — nothing else,
 no shell, and root SSH login stays fully disabled throughout. Set
 `<AYAME_SSH_USER>` in `michi/cert-sync/sync-dashboard-cert.sh` to whichever
 user you ran this as.
@@ -324,6 +340,11 @@ openssl s_client -connect <MICHI_PUBLIC_IP>:443 -servername <DASHBOARD_DOMAIN> <
 ```
 
 Should show Let's Encrypt as the issuer instead of `TRAEFIK DEFAULT CERT`.
+Check the *issuer*, not just that a handshake completed — `openssl
+s_client` does not validate the chain by default, so it will happily print
+a self-signed cert and exit `0`. To check the way a real client does, use
+`curl -sv https://<DASHBOARD_DOMAIN>/ -o /dev/null` and confirm there's no
+`unknown CA` alert.
 
 ## Source
 
