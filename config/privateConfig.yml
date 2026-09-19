@@ -16,3 +16,14 @@ dns:
   nameserver_name: "ns.example.com"
   cname_extension: "cname.example.com"
   site_extension: "site.example.com" # Optional
+  # Pangolin's DNS server only ever answers with an A record for a name
+  # that's a resource or a login page - it never generates one for the
+  # bare dashboard domain itself. Once that domain's NS is delegated to
+  # this nameserver, nothing else can serve that record either, so
+  # without this it's a permanent NXDOMAIN. This is the DNS-layer
+  # counterpart of config/dynamic/bootstrap.yml (which solves the same
+  # gap for Traefik routing).
+  static_records:
+    - domain: "<DASHBOARD_DOMAIN>"
+      type: "A"
+      value: "<AYAME_PUBLIC_IP>"

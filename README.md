@@ -58,7 +58,7 @@ setup, so:
 | `<CONTACT_EMAIL>` | `config/privateConfig.yml`, `michi/config/privateConfig.yml` | email for ACME/Let's Encrypt |
 | `POSTGRES_PASSWORD` | `.env` (copy from `.env.example`) and `michi/config/config.yml`'s connection string | shared DB password |
 | `pangolin.example.com` | `config/config.yml`, `michi/config/config.yml` | your real dashboard domain |
-| `<DASHBOARD_DOMAIN>` | `config/dynamic/bootstrap.yml`, `michi/config/dynamic/bootstrap.yml` | same domain as `dashboard_url`, without the scheme |
+| `<DASHBOARD_DOMAIN>` | `config/dynamic/bootstrap.yml`, `michi/config/dynamic/bootstrap.yml`, `config/privateConfig.yml`, `michi/config/privateConfig.yml` | same domain as `dashboard_url`, without the scheme |
 
 ## Deploy order
 
@@ -94,6 +94,23 @@ Until a real domain/resource is configured with a valid ACME cert, this
 domain serves Traefik's self-signed fallback certificate — click through
 your browser's warning (and clear any cached HSTS policy for the domain via
 `about:networking#hsts` in Firefox if it refuses to let you).
+
+## Why `dns.static_records` for the dashboard domain exists
+
+Once the dashboard domain's NS is delegated to Pangolin's own embedded DNS
+server (needed for `cert_mode: pangolin`'s DNS-01 challenges), that server
+becomes the *only* thing anyone asks for `A` records under that domain — and
+it never answers for the bare dashboard domain itself. Its query handler
+(`server/private/lib/dns/server.ts`) only ever returns an `A` record for a
+name that matches a `resources` row or a `loginPage` row; the dashboard
+domain is neither, so it's a permanent `NXDOMAIN` from every public
+resolver, even though local resolvers with a manual override (e.g. a
+pfSense domain override pointing straight at the server) mask it. This is
+the DNS-layer counterpart of the `bootstrap.yml` gap above — same
+chicken-and-egg shape, different layer. The `dns.static_records` entry in
+`config/privateConfig.yml` (and `michi/config/privateConfig.yml`, kept in
+sync) works around it the same way `bootstrap.yml` does for Traefik: a
+hand-written record for the one hostname Pangolin's own logic never covers.
 
 ## Source
 
