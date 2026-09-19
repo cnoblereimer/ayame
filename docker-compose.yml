@@ -45,6 +45,12 @@ services:
       - ./config:/app/config
       - ./config/certificates:/var/certificates
       - ./config/dynamic:/var/dynamic
+    ports:
+      # TEMPORARY: bound to loopback only, for initial setup via SSH tunnel.
+      # Remove once a real domain/resource is configured and reachable
+      # through the normal HAProxy -> gerbil -> traefik path.
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3002:3002"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/api/v1/"]
       interval: "10s"
