@@ -63,6 +63,14 @@ services:
       - ./config/traefik/logs:/var/log/traefik
       - ./config/certificates:/var/certificates:ro
       - ./config/dynamic:/var/dynamic:ro
+      # Separate from /var/certificates on purpose: Pangolin's own cert
+      # janitor (cleanupUnusedCertificates in TraefikConfigManager.ts)
+      # force-deletes any directory under certificates_path that isn't one
+      # of THIS node's own currently-active domains, with only a ~15s grace
+      # period. Michi never has an active domain of its own, so anything
+      # synced into /var/certificates would get deleted moments after
+      # landing there. This directory is never scanned by that logic.
+      - ./cert-sync/synced-certs:/var/dashboard-cert:ro
 
 networks:
   default:

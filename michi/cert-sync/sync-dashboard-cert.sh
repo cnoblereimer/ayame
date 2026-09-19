@@ -1,18 +1,23 @@
 #!/bin/bash
 # Pulls the dashboard domain's real cert/key from ayame and installs them
-# atomically into michi's local certificate directory, where
+# atomically into cert-sync/synced-certs/, which is bind-mounted into the
+# traefik container SEPARATELY from config/certificates (see the volumes
+# comment in docker-compose.yml - Pangolin's own certificate janitor would
+# otherwise delete anything synced into config/certificates/ within
+# seconds, since michi never has an active domain of its own).
 # michi/config/dynamic/bootstrap.yml's hand-written tls.certificates entry
-# expects to find them. Traefik reloads a referenced cert file automatically
-# whenever its content changes, so this script never needs to touch
-# bootstrap.yml or restart anything - it only ever rewrites cert.pem/key.pem.
-# See the repo's top-level README.md, "Why the dashboard cert is synced
-# from ayame to michi", for what this depends on and why it exists.
+# expects to find the files here. Traefik reloads a referenced cert file
+# automatically whenever its content changes, so this script never needs
+# to touch bootstrap.yml or restart anything - it only ever rewrites
+# cert.pem/key.pem. See the repo's top-level README.md, "Why the dashboard
+# cert is synced from ayame to michi", for what this depends on and why it
+# exists.
 set -euo pipefail
 
 SSH_KEY="/opt/pangolin-cluster/cert-sync/cert-sync-key"
 AYAME_HOST="<AYAME_SSH_USER>@<AYAME_PUBLIC_IP>"
 AYAME_SSH_PORT="<AYAME_SSH_PORT>"
-DEST_DIR="/opt/pangolin-cluster/config/certificates/<DASHBOARD_DOMAIN>"
+DEST_DIR="/opt/pangolin-cluster/cert-sync/synced-certs"
 
 mkdir -p "$DEST_DIR"
 

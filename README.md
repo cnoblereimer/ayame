@@ -146,14 +146,30 @@ would otherwise only ever serve Traefik's self-signed fallback cert.
 
 The fix: a small SSH-based sync job on michi (systemd timer, every 6 hours)
 pulls `cert.pem`/`key.pem` from ayame's `config/certificates/<dashboard
-domain>/` into the same path on michi, and `michi/config/dynamic/bootstrap.yml`
-has a hand-written `tls.certificates` entry pointing at them — the same
-"bypass Pangolin's own per-node logic" pattern as the router and DNS fixes
-above. Traefik reloads a referenced cert file automatically whenever its
-content changes, so nothing needs to touch `bootstrap.yml` again once this
-is set up; only the synced files change on renewal. The sync uses a
-restricted forced-command SSH key (michi can only read those two specific
-files on ayame, nothing else) rather than a general-purpose key.
+domain>/` into `cert-sync/synced-certs/` on michi, and
+`michi/config/dynamic/bootstrap.yml` has a hand-written `tls.certificates`
+entry pointing at them — the same "bypass Pangolin's own per-node logic"
+pattern as the router and DNS fixes above. Traefik reloads a referenced
+cert file automatically whenever its content changes, so nothing needs to
+touch `bootstrap.yml` again once this is set up; only the synced files
+change on renewal. The sync uses a restricted forced-command SSH key (michi
+can only read those two specific files on ayame, nothing else) rather than
+a general-purpose key.
+
+**The synced files must not land in `config/certificates/`.** That
+directory is also Pangolin's own certificate store, and its janitor
+(`cleanupUnusedCertificates` in `TraefikConfigManager.ts`) force-deletes
+any domain directory there that isn't one of *this node's own* currently
+active domains, with only a ~15 second grace period — confirmed the hard
+way: the first working sync got deleted by Pangolin's own cleanup within
+about 15 minutes of the sync running, leaving Traefik logging `failed to
+find any PEM data in certificate input` for a file that had simply ceased
+to exist. Michi never has an active domain of its own, so anything synced
+into `config/certificates/` there is on borrowed time no matter how often
+it's re-synced. `cert-sync/synced-certs/` is bind-mounted into the traefik
+container as a *separate* path (`/var/dashboard-cert`, read-only) that
+Pangolin's janitor never scans, and `bootstrap.yml`'s `tls.certificates`
+entry points there instead of into `/var/certificates`.
 
 ### Setup
 

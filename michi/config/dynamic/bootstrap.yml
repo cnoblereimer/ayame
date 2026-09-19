@@ -34,7 +34,14 @@ http:
 # README: "Why the dashboard cert is synced from ayame") - Traefik reloads
 # it automatically whenever the referenced files' content changes, so nothing
 # here needs to change when the cert renews.
+#
+# Deliberately NOT under /var/certificates: that directory is also
+# Pangolin's own certificate store, and its janitor process force-deletes
+# any domain directory there that isn't one of THIS node's own active
+# domains (michi never has one), typically within ~15 seconds. This path
+# is a separate bind mount (see docker-compose.yml) that Pangolin never
+# scans.
 tls:
   certificates:
-    - certFile: /var/certificates/<DASHBOARD_DOMAIN>/cert.pem
-      keyFile: /var/certificates/<DASHBOARD_DOMAIN>/key.pem
+    - certFile: /var/dashboard-cert/cert.pem
+      keyFile: /var/dashboard-cert/key.pem

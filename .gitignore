@@ -21,3 +21,4 @@ michi/config/logs/
 michi/config/traefik/logs/
 michi/cert-sync/cert-sync-key
 michi/cert-sync/cert-sync-key.pub
+michi/cert-sync/synced-certs/
