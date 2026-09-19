@@ -9,8 +9,20 @@ cluster:
   and should be copied to that host.
 
 Clustering (shared database, multiple `pangolin`/`gerbil`/`traefik` nodes) is
-an Enterprise Edition feature — both nodes run `fosrl/pangolin:ee-latest` and
-require a valid EE license.
+an Enterprise Edition feature — both nodes run
+`fosrl/pangolin:ee-postgresql-latest` and require a valid EE license.
+
+**Important:** use the `ee-postgresql-*` tag family, not plain `ee-latest`.
+`ee-latest` is built against the SQLite code path (its bundled
+`dist/migrations.mjs` and `dist/init/*.sql` are SQLite DDL — backtick-quoted
+identifiers, `AUTOINCREMENT`, etc.) and will never create a working Postgres
+schema, even though the app otherwise happily connects to Postgres for
+everything else. Confirmed by pulling the `ee-latest` image directly: its
+migration runner's SQLite-specific error handling
+(`SqliteError`/`SQLITE_CONSTRAINT_UNIQUE`) is compiled into a file that's
+supposed to run Postgres migrations, and it never actually creates any
+tables against a real Postgres database. `ee-postgresql-latest` is the
+correctly-built variant for this setup.
 
 ## Topology
 
