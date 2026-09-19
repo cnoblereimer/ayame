@@ -123,23 +123,23 @@ chicken-and-egg shape, different layer. The `dns.static_records` entry in
 sync) works around it the same way `bootstrap.yml` does for Traefik: a
 hand-written record for the one hostname Pangolin's own logic never covers.
 
-## `ns.simplycrafted.net` needs an A record for both nodes
+## The nameserver hostname needs an A record for both nodes
 
-The nameserver hostname (`ns.simplycrafted.net`, delegated via `NS` records
-for the dashboard domain) only had a single `A` record pointing at ayame.
-Both `pangolin` containers run their own embedded DNS server and answer the
-zone identically (they share the same Postgres data and `dns.static_records`
-config), but the *delegation* only ever pointed resolvers at one of them.
-Confirmed by directly stopping ayame's `pangolin` container during an HA
-test: the entire domain became unresolvable everywhere (`NXDOMAIN`/
-`NS_ERROR_UNKNOWN_HOST`), even though HAProxy, Traefik, and everything else
-on michi was completely healthy — DNS resolution for the whole domain was a
-single point of failure independent of, and more fundamental than, the
-HAProxy/ingress layer. Fixed by adding a second `A` record for
-`ns.simplycrafted.net` pointing at michi's IP, so a resolver that can't
-reach ayame's nameserver falls back to michi's — this is a change made
-directly in Cloudflare (or whatever DNS provider hosts the parent zone),
-not anything in this repo.
+`dns.nameserver_name` (`privateConfig.yml`, e.g. `ns.<yourdomain>`) — the
+hostname the dashboard domain's `NS` records delegate to — only had a
+single `A` record pointing at ayame. Both `pangolin` containers run their
+own embedded DNS server and answer the zone identically (they share the
+same Postgres data and `dns.static_records` config), but the *delegation*
+only ever pointed resolvers at one of them. Confirmed by directly stopping
+ayame's `pangolin` container during an HA test: the entire domain became
+unresolvable everywhere (`NXDOMAIN`/`NS_ERROR_UNKNOWN_HOST`), even though
+HAProxy, Traefik, and everything else on michi was completely healthy — DNS
+resolution for the whole domain was a single point of failure independent
+of, and more fundamental than, the HAProxy/ingress layer. Fixed by adding a
+second `A` record for the nameserver hostname pointing at michi's IP, so a
+resolver that can't reach ayame's nameserver falls back to michi's — this
+is a change made directly at your DNS provider (e.g. Cloudflare, for
+whatever hosts the parent zone), not anything in this repo.
 
 Postgres, Redis, and HAProxy itself are still single-homed on ayame, so
 ayame going down entirely still stops the whole cluster (michi has nowhere
