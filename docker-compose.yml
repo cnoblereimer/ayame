@@ -45,6 +45,13 @@ services:
       - ./config:/app/config
       - ./config/certificates:/var/certificates
       - ./config/dynamic:/var/dynamic
+    ports:
+      # Published directly on pangolin, not gerbil: gerbil's own port 53
+      # publish does not correctly relay queries to pangolin's embedded
+      # DNS server (confirmed by querying pangolin:53 directly over the
+      # internal docker network, which answers correctly, vs. the
+      # host's public port 53 via gerbil, which returned SERVFAIL).
+      - "53:53/udp"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/api/v1/"]
       interval: "10s"
@@ -71,8 +78,9 @@ services:
     ports:
       - 51820:51820/udp # wireguard
       - 21820:21820/udp # relay
-      - 53:53/udp # DNS
       - 3004:3004 # gerbil control API - needs to be reachable from michi
+      # DNS (53/udp) is published on the pangolin service instead - see
+      # its ports comment.
       # 80/443/3000 are intentionally NOT published here: haproxy reaches
       # this node over the internal "pangolin" docker network instead
       # (gerbil:80, gerbil:8443, gerbil:3000), since haproxy already owns
