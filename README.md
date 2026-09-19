@@ -112,6 +112,38 @@ chicken-and-egg shape, different layer. The `dns.static_records` entry in
 sync) works around it the same way `bootstrap.yml` does for Traefik: a
 hand-written record for the one hostname Pangolin's own logic never covers.
 
+## Why the dashboard cert is synced from ayame to michi
+
+Pangolin's certificate pipeline (`TraefikConfigManager.ts`) is scoped **per
+exit node**: a node only fetches/writes a cert for a domain that a resource
+or login page assigned to *that node's own exit node ID* actually needs —
+confirmed by reading both the OSS `TraefikConfigManager.ts` and the EE
+`getTraefikConfig.ts`'s login-page router generation, which both filter
+strictly by `exitNodeId`. Certificate files live on local disk only
+(`config/certificates/`), never in the shared Postgres/Redis — there is no
+built-in mechanism that replicates a cert across nodes for a domain both
+need to serve behind a round-robin load balancer. Pangolin's clustering is
+built for node failover, not concurrent same-domain multi-node serving,
+which is what our own HAProxy layer asks of it.
+
+On ayame, the dashboard domain's wildcard cert exists only because the
+`test` resource's site happens to be pinned to ayame's exit node, which
+pulls in a wildcard cert whose SANs happen to also cover the bare dashboard
+domain. Michi has no resource or login page pinned to its exit node, so its
+own cert-fetch cycle never runs for any domain, dashboard included — it
+would otherwise only ever serve Traefik's self-signed fallback cert.
+
+The fix: a small SSH-based sync job on michi (systemd timer, every 6 hours)
+pulls `cert.pem`/`key.pem` from ayame's `config/certificates/<dashboard
+domain>/` into the same path on michi, and `michi/config/dynamic/bootstrap.yml`
+has a hand-written `tls.certificates` entry pointing at them — the same
+"bypass Pangolin's own per-node logic" pattern as the router and DNS fixes
+above. Traefik reloads a referenced cert file automatically whenever its
+content changes, so nothing needs to touch `bootstrap.yml` again once this
+is set up; only the synced files change on renewal. The sync uses a
+restricted forced-command SSH key (michi can only read those two specific
+files on ayame, nothing else) rather than a general-purpose key.
+
 ## Source
 
 Adapted from Pangolin's official [HA reference

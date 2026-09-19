@@ -23,3 +23,18 @@ http:
       loadBalancer:
         servers:
           - url: "http://pangolin:3002"
+
+# Pangolin's own certificate pipeline is scoped per exit node - it only
+# fetches/writes a cert for a domain if a resource or login page on THIS
+# node's exit node needs it (see TraefikConfigManager.ts). No resource is
+# pinned to michi's exit node, so that pipeline never runs here and this
+# node would otherwise only ever have Traefik's self-signed fallback cert
+# for the dashboard domain. This entry points at a copy of ayame's real
+# wildcard cert kept up to date by a cron/systemd-timer job on michi (see
+# README: "Why the dashboard cert is synced from ayame") - Traefik reloads
+# it automatically whenever the referenced files' content changes, so nothing
+# here needs to change when the cert renews.
+tls:
+  certificates:
+    - certFile: /var/certificates/<DASHBOARD_DOMAIN>/cert.pem
+      keyFile: /var/certificates/<DASHBOARD_DOMAIN>/key.pem
