@@ -156,7 +156,7 @@ ayame going down entirely still stops the whole cluster (michi has nowhere
 to get data from, and there's no other ingress point) — this fix only
 closes the DNS-specific gap, not that broader one.
 
-## `websecure_back`'s health check is a plain TCP check (known gap)
+## Why `websecure_back`'s health check is an HTTPS request, not a TCP check
 
 A plain TCP check only proves Traefik's port is open — it says nothing
 about whether the actual backend Traefik proxies to is reachable.
@@ -168,12 +168,20 @@ from Traefik, since `bootstrap.yml`'s routers proxy to `http://pangolin:3000`/
 `3002`, and pangolin was down. HAProxy kept sending roughly half its
 round-robined traffic into that dead end the whole time.
 
-The obvious fix — `option httpchk GET /api/v1/` with an `http-check send
-hdr Host <dashboard domain>` and `check-ssl verify none` on the server
-lines, so the check takes the same path real dashboard traffic does — was
-tried live and **reverted immediately**: both servers failed the check with
-`SSL handshake failure` and HAProxy logged `backend 'websecure_back' has no
-server available!`, a full outage on 443. The gap is still open.
+The fix is `option httpchk` with an `http-check send hdr Host <dashboard
+domain>` and `check-ssl verify none sni str(<dashboard domain>)` on the
+server lines, so the check makes the same request real dashboard traffic
+makes and only reports up when pangolin is actually answering.
+
+A first attempt at this was **reverted immediately**: both servers failed
+with `SSL handshake failure` and HAProxy logged `backend 'websecure_back'
+has no server available!`, a full outage on 443. It was missing `sni` —
+without it the check's ClientHello carries no server name, unlike real
+traffic. The corrected version was validated *before* adoption on a
+traffic-free test backend (referenced by no frontend, visible only on the
+stats page) with `pangolin` stopped on ayame: ayame went DOWN, michi stayed
+UP, exactly as intended. Use that same pattern for any future change to a
+live health check — a broken check takes down every node at once.
 
 At the time this was blamed on a suspected Traefik TLS/ALPN bug, because
 `curl` consistently failed against Traefik while `openssl s_client`
@@ -184,9 +192,10 @@ which is why it looked like a transport-layer bug); `openssl s_client`
 "succeeded" only because it doesn't validate the chain by default. See the
 next section — that self-signed cert was a real, separate outage.
 
-Why HAProxy's own `check-ssl` failed is therefore still unexplained, since
-`verify none` should have accepted a self-signed cert too. Re-test it
-against a node taken out of rotation first, not live.
+Note that this check covers ingress only. Stopping `pangolin` also kills
+that node's authoritative DNS server (it owns `53/udp`), and no
+load-balancer health check can compensate for a dead nameserver — see the
+`ns.simplycrafted.net` section above.
 
 ## Why the dashboard cert is synced from ayame to michi
 
