@@ -47,10 +47,12 @@ services:
       - ./config/dynamic:/var/dynamic
     ports:
       # TEMPORARY: bound to loopback only, for initial setup via SSH tunnel.
+      # Host-side ports shifted to avoid colliding with haproxy, which
+      # already publishes 3000 on all interfaces (incl. 127.0.0.1).
       # Remove once a real domain/resource is configured and reachable
       # through the normal HAProxy -> gerbil -> traefik path.
-      - "127.0.0.1:3000:3000"
-      - "127.0.0.1:3002:3002"
+      - "127.0.0.1:13000:3000"
+      - "127.0.0.1:13002:3002"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/api/v1/"]
       interval: "10s"
