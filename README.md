@@ -184,7 +184,10 @@ mkdir -p ~/.ssh
 echo 'command="sudo '"$(pwd)"'/cert-sync/cert-sync-allowed.sh",no-agent-forwarding,no-X11-forwarding,no-port-forwarding,no-pty PASTE_MICHI_PUBLIC_KEY_HERE' >> ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
 
-echo "$(whoami) ALL=(root) NOPASSWD: $(pwd)/cert-sync/cert-sync-allowed.sh" | sudo tee /etc/sudoers.d/cert-sync
+sudo tee /etc/sudoers.d/cert-sync > /dev/null <<EOF
+$(whoami) ALL=(root) NOPASSWD: $(pwd)/cert-sync/cert-sync-allowed.sh
+Defaults!$(pwd)/cert-sync/cert-sync-allowed.sh env_keep += "SSH_ORIGINAL_COMMAND"
+EOF
 sudo chmod 440 /etc/sudoers.d/cert-sync
 sudo visudo -cf /etc/sudoers.d/cert-sync   # validates syntax before it's live
 ```
@@ -197,6 +200,12 @@ which itself only allows reading
 no shell, and root SSH login stays fully disabled throughout. Set
 `<AYAME_SSH_USER>` in `michi/cert-sync/sync-dashboard-cert.sh` to whichever
 user you ran this as.
+
+The `env_keep` line matters: `sudo` strips almost all environment variables
+by default (`env_reset`), including `$SSH_ORIGINAL_COMMAND` — which is
+exactly what `cert-sync-allowed.sh` reads to decide whether to serve
+`get-cert` or `get-key`. Without it, the script always falls through to
+"command not permitted" no matter what the client asked for.
 
 If root login is *not* disabled on your ayame, you can skip the sudoers
 step and use `/root/.ssh/authorized_keys` with `command="..."` (no `sudo`
