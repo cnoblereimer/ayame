@@ -5,7 +5,8 @@
 # expects to find them. Traefik reloads a referenced cert file automatically
 # whenever its content changes, so this script never needs to touch
 # bootstrap.yml or restart anything - it only ever rewrites cert.pem/key.pem.
-# See ../README.md for what this depends on and why it exists.
+# See the repo's top-level README.md, "Why the dashboard cert is synced
+# from ayame to michi", for what this depends on and why it exists.
 set -euo pipefail
 
 SSH_KEY="/opt/pangolin-cluster/cert-sync/cert-sync-key"

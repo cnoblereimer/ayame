@@ -1,8 +1,9 @@
 #!/bin/bash
 # Forced command for the michi cert-sync SSH key's authorized_keys entry on
-# ayame (see cert-sync/README.md). Only allows reading the two dashboard
-# cert files - nothing else, regardless of what the client actually asked
-# for over SSH ($SSH_ORIGINAL_COMMAND is attacker/caller controlled).
+# ayame (see README.md's "Why the dashboard cert is synced" section). Only
+# allows reading the two dashboard cert files - nothing else, regardless of
+# what the client actually asked for over SSH ($SSH_ORIGINAL_COMMAND is
+# attacker/caller controlled).
 set -euo pipefail
 
 CERT_DIR="/opt/pangolin-cluster/config/certificates/<DASHBOARD_DOMAIN>"

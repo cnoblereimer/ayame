@@ -1,12 +1,17 @@
 # Pangolin two-node cluster (ayame + michi)
 
 This repo holds the deployment for a two-node [Pangolin](https://github.com/fosrl/pangolin) EE
-cluster:
+cluster, one self-contained folder per host:
 
-- **ayame** — shared Postgres + Redis, HAProxy, and a Pangolin cluster node
-  (`pangolin` + `gerbil` + `traefik`). Files live at the repo root.
-- **michi** — a second Pangolin cluster node only. Files live under `michi/`
-  and should be copied to that host.
+- **`ayame/`** — shared Postgres + Redis, HAProxy, and a Pangolin cluster
+  node (`pangolin` + `gerbil` + `traefik`). Copy this whole folder's
+  *contents* to ayame's deployment directory.
+- **`michi/`** — a second Pangolin cluster node only. Copy this whole
+  folder's *contents* to michi's deployment directory.
+
+Each folder is a complete `docker compose` project root on its own — no
+file lives outside these two folders except this README and top-level
+`.gitignore`, so deploying a host is just "copy its folder over."
 
 Clustering (shared database, multiple `pangolin`/`gerbil`/`traefik` nodes) is
 an Enterprise Edition feature — both nodes run
@@ -52,28 +57,32 @@ setup, so:
 
 | Placeholder | Where | Value |
 |---|---|---|
-| `<AYAME_PUBLIC_IP>` | `config/config.yml`, `docker-compose.yml`, `haproxy/haproxy.cfg`, `michi/config/*` | ayame's public IP |
-| `<MICHI_PUBLIC_IP>` | `michi/config/config.yml`, `michi/docker-compose.yml`, `config/config.yml`, `docker-compose.yml`, `haproxy/haproxy.cfg` | michi's public IP |
-| `<CLUSTER_SECRET>` | `config/config.yml`, `michi/config/config.yml` | same random value on **both** nodes — generate once with `openssl rand -hex 32` |
-| `<CONTACT_EMAIL>` | `config/privateConfig.yml`, `michi/config/privateConfig.yml` | email for ACME/Let's Encrypt |
-| `POSTGRES_PASSWORD` | `.env` (copy from `.env.example`) and `michi/config/config.yml`'s connection string | shared DB password |
-| `pangolin.example.com` | `config/config.yml`, `michi/config/config.yml` | your real dashboard domain |
-| `<DASHBOARD_DOMAIN>` | `config/dynamic/bootstrap.yml`, `michi/config/dynamic/bootstrap.yml`, `config/privateConfig.yml`, `michi/config/privateConfig.yml` | same domain as `dashboard_url`, without the scheme |
+| `<AYAME_PUBLIC_IP>` | `ayame/config/config.yml`, `ayame/docker-compose.yml`, `ayame/haproxy/haproxy.cfg`, `ayame/cert-sync/*`, `michi/config/*`, `michi/cert-sync/*` | ayame's public IP |
+| `<MICHI_PUBLIC_IP>` | `michi/config/config.yml`, `michi/docker-compose.yml`, `ayame/config/config.yml`, `ayame/docker-compose.yml`, `ayame/haproxy/haproxy.cfg` | michi's public IP |
+| `<CLUSTER_SECRET>` | `ayame/config/config.yml`, `michi/config/config.yml` | same random value on **both** nodes — generate once with `openssl rand -hex 32` |
+| `<CONTACT_EMAIL>` | `ayame/config/privateConfig.yml`, `michi/config/privateConfig.yml` | email for ACME/Let's Encrypt |
+| `POSTGRES_PASSWORD` | `ayame/.env` (copy from `ayame/.env.example`) and `michi/config/config.yml`'s connection string | shared DB password |
+| `pangolin.example.com` | `ayame/config/config.yml`, `michi/config/config.yml` | your real dashboard domain |
+| `<DASHBOARD_DOMAIN>` | `ayame/config/dynamic/bootstrap.yml`, `michi/config/dynamic/bootstrap.yml`, `ayame/config/privateConfig.yml`, `michi/config/privateConfig.yml`, `ayame/cert-sync/*`, `michi/cert-sync/*` | same domain as `dashboard_url`, without the scheme |
 
 ## Deploy order
 
-1. On **ayame**: copy `.env.example` to `.env`, fill in `POSTGRES_PASSWORD`,
-   fill in all placeholders above, drop `GeoLite2-Country.mmdb` /
-   `GeoLite2-ASN.mmdb` into `config/`, then `docker compose up -d`.
+1. On **ayame**: copy the contents of `ayame/` to the host's deployment
+   directory (e.g. `/opt/pangolin-cluster`), copy `.env.example` to `.env`
+   and fill in `POSTGRES_PASSWORD`, fill in all placeholders above, drop
+   `GeoLite2-Country.mmdb` / `GeoLite2-ASN.mmdb` into `config/`, then
+   `docker compose up -d`.
 2. Open the firewall rules noted above so michi can reach ayame's Postgres,
    Redis, and gerbil control API.
-3. On **michi**: copy the `michi/` directory to the host (as its own compose
-   project root), fill in its placeholders (same `<CLUSTER_SECRET>` and
-   `POSTGRES_PASSWORD` as ayame), drop the GeoLite2 databases into
-   `config/`, then `docker compose up -d`.
+3. On **michi**: copy the contents of `michi/` to the host's deployment
+   directory (same path convention as ayame), fill in its placeholders
+   (same `<CLUSTER_SECRET>` and `POSTGRES_PASSWORD` as ayame), drop the
+   GeoLite2 databases into `config/`, then `docker compose up -d`.
 4. Point DNS for your dashboard/resource domains at ayame's HAProxy (or at
    both nodes' IPs via round-robin DNS, if you don't want a single point of
    ingress).
+5. Set up the dashboard cert sync (below) so michi serves a real cert
+   instead of Traefik's self-signed fallback.
 
 ## Why `config/dynamic/bootstrap.yml` exists
 
@@ -142,8 +151,59 @@ above. Traefik reloads a referenced cert file automatically whenever its
 content changes, so nothing needs to touch `bootstrap.yml` again once this
 is set up; only the synced files change on renewal. The sync uses a
 restricted forced-command SSH key (michi can only read those two specific
-files on ayame, nothing else) rather than a general-purpose key. Setup commands are in
-[`cert-sync/README.md`](cert-sync/README.md).
+files on ayame, nothing else) rather than a general-purpose key.
+
+### Setup
+
+Each host only ever needs the scripts already inside its own deployed
+folder (`ayame/cert-sync/` on ayame, `michi/cert-sync/` on michi) — nothing
+needs to be copied across hosts.
+
+**1. On michi: generate a dedicated keypair** (no passphrase — this runs
+unattended from a systemd timer):
+
+```bash
+ssh-keygen -t ed25519 -f ./cert-sync/cert-sync-key -N "" -C "michi-cert-sync"
+cat ./cert-sync/cert-sync-key.pub
+```
+
+Copy the printed public key.
+
+**2. On ayame: authorize that key, restricted to the sync script only:**
+
+```bash
+chmod +x ./cert-sync/cert-sync-allowed.sh
+mkdir -p /root/.ssh
+echo 'command="'"$(pwd)"'/cert-sync/cert-sync-allowed.sh",no-agent-forwarding,no-X11-forwarding,no-port-forwarding,no-pty PASTE_MICHI_PUBLIC_KEY_HERE' >> /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+```
+
+Replace `PASTE_MICHI_PUBLIC_KEY_HERE` with the full `ssh-ed25519 AAAA...
+michi-cert-sync` line from step 1. This key can only ever run
+`cert-sync-allowed.sh`, which itself only allows reading
+`config/certificates/<dashboard domain>/{cert.pem,key.pem}` — nothing else,
+no shell.
+
+**3. On michi: do a first sync manually, then enable the timer:**
+
+```bash
+chmod +x ./cert-sync/sync-dashboard-cert.sh
+./cert-sync/sync-dashboard-cert.sh   # first run - accept ayame's host key when prompted
+
+cp ./cert-sync/pangolin-cert-sync.service /etc/systemd/system/
+cp ./cert-sync/pangolin-cert-sync.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now pangolin-cert-sync.timer
+```
+
+**4. Verify:**
+
+```bash
+systemctl list-timers pangolin-cert-sync.timer
+openssl s_client -connect <MICHI_PUBLIC_IP>:443 -servername <DASHBOARD_DOMAIN> </dev/null 2>/dev/null | openssl x509 -noout -issuer -subject
+```
+
+Should show Let's Encrypt as the issuer instead of `TRAEFIK DEFAULT CERT`.
 
 ## Source
 

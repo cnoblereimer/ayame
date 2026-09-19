@@ -3,4 +3,4 @@ Description=Sync Pangolin dashboard cert from ayame
 
 [Service]
 Type=oneshot
-ExecStart=/opt/pangolin-cluster/cert-sync/michi/sync-dashboard-cert.sh
+ExecStart=/opt/pangolin-cluster/cert-sync/sync-dashboard-cert.sh
