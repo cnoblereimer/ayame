@@ -6,7 +6,11 @@
 # attacker/caller controlled).
 set -euo pipefail
 
-CERT_DIR="/opt/pangolin-cluster/config/certificates/<DASHBOARD_DOMAIN>"
+# NOT config/certificates/<DASHBOARD_DOMAIN>: Pangolin's janitor deletes that
+# directory on this node too (see config/dynamic/bootstrap.yml), so syncing
+# from it fails the moment the janitor gets there first. This is the same
+# copy Traefik serves here.
+CERT_DIR="/opt/pangolin-cluster/cert-sync/dashboard-cert"
 
 case "${SSH_ORIGINAL_COMMAND:-}" in
     get-cert)

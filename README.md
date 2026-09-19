@@ -146,7 +146,7 @@ ayame going down entirely still stops the whole cluster (michi has nowhere
 to get data from, and there's no other ingress point) — this fix only
 closes the DNS-specific gap, not that broader one.
 
-## Why `websecure_back`'s health check is an HTTPS request, not a TCP check
+## `websecure_back`'s health check is a plain TCP check (known gap)
 
 A plain TCP check only proves Traefik's port is open — it says nothing
 about whether the actual backend Traefik proxies to is reachable.
@@ -156,14 +156,27 @@ looking perfectly healthy to a TCP check, since Traefik itself was still
 listening fine on `8443` — but every real request routed there got a `502`
 from Traefik, since `bootstrap.yml`'s routers proxy to `http://pangolin:3000`/
 `3002`, and pangolin was down. HAProxy kept sending roughly half its
-round-robined traffic into that dead end the whole time. The `option
-httpchk`/`http-check` lines make the check itself an HTTPS `GET /api/v1/`
-with the dashboard domain's `Host` header — the same request path real
-dashboard traffic takes — so the check only reports "up" when pangolin is
-actually answering behind Traefik, not just when Traefik's port happens to
-be open. `check-ssl verify none` lets HAProxy perform this check over TLS
-without needing to trust Traefik's certificate chain, since it's only
-checking for a response, not validating the cert.
+round-robined traffic into that dead end the whole time.
+
+The obvious fix — `option httpchk GET /api/v1/` with an `http-check send
+hdr Host <dashboard domain>` and `check-ssl verify none` on the server
+lines, so the check takes the same path real dashboard traffic does — was
+tried live and **reverted immediately**: both servers failed the check with
+`SSL handshake failure` and HAProxy logged `backend 'websecure_back' has no
+server available!`, a full outage on 443. The gap is still open.
+
+At the time this was blamed on a suspected Traefik TLS/ALPN bug, because
+`curl` consistently failed against Traefik while `openssl s_client`
+consistently succeeded. **That theory was wrong.** curl was failing because
+ayame was serving Traefik's *self-signed fallback* cert and curl rejects it
+(`TLS alert, unknown CA`, connection closed mid-handshake, no HTTP status —
+which is why it looked like a transport-layer bug); `openssl s_client`
+"succeeded" only because it doesn't validate the chain by default. See the
+next section — that self-signed cert was a real, separate outage.
+
+Why HAProxy's own `check-ssl` failed is therefore still unexplained, since
+`verify none` should have accepted a self-signed cert too. Re-test it
+against a node taken out of rotation first, not live.
 
 ## Why the dashboard cert is synced from ayame to michi
 
@@ -179,16 +192,38 @@ need to serve behind a round-robin load balancer. Pangolin's clustering is
 built for node failover, not concurrent same-domain multi-node serving,
 which is what our own HAProxy layer asks of it.
 
-On ayame, the dashboard domain's wildcard cert exists only because the
-`test` resource's site happens to be pinned to ayame's exit node, which
-pulls in a wildcard cert whose SANs happen to also cover the bare dashboard
-domain. Michi has no resource or login page pinned to its exit node, so its
-own cert-fetch cycle never runs for any domain, dashboard included — it
-would otherwise only ever serve Traefik's self-signed fallback cert.
+On ayame, the dashboard domain's wildcard cert originally existed only
+because the `test` resource's site happened to be pinned to ayame's exit
+node, which pulled in a wildcard cert whose SANs also cover the bare
+dashboard domain. Michi has no resource or login page pinned to its exit
+node, so its own cert-fetch cycle never runs for any domain, dashboard
+included — it would otherwise only ever serve Traefik's self-signed
+fallback cert.
+
+**That arrangement is fragile, and it has already broken once.** When
+nothing active claims the dashboard domain on ayame's exit node, ayame is
+in exactly michi's position: the janitor reaps the cert and Traefik falls
+back to self-signed. That happened live — pangolin logged `No exit nodes
+found for resource.` / `NXDOMAIN for auth.simplycrafted.net`, then
+`Certificate <domain> is no longer in use. Will delete after 3 more
+cycles.` and `Cleaning up unused certificate directory`, on a loop every
+few minutes. Restoring the files by hand did nothing; they were deleted
+again within ~20 seconds each time. So **ayame serves the dashboard cert
+from a janitor-proof path too** (`ayame/cert-sync/dashboard-cert/`,
+bind-mounted as `/var/dashboard-cert`, referenced from
+`ayame/config/dynamic/bootstrap.yml`) — the same pattern as michi, for the
+same reason. ayame's copy is also what michi syncs *from*, so the sync no
+longer depends on a directory Pangolin deletes.
+
+Note what this does **not** solve: renewal. Pangolin renews certs it
+considers in use, and it does not consider this one in use. Whatever caused
+the exit-node association for the dashboard domain to disappear needs
+fixing in Pangolin itself before the cert's expiry, or both nodes will be
+serving an expired cert from their janitor-proof directories.
 
 The fix: a small SSH-based sync job on michi (systemd timer, every 6 hours)
-pulls `cert.pem`/`key.pem` from ayame's `config/certificates/<dashboard
-domain>/` into `cert-sync/synced-certs/` on michi, and
+pulls `cert.pem`/`key.pem` from ayame's `cert-sync/dashboard-cert/` into
+`cert-sync/synced-certs/` on michi, and
 `michi/config/dynamic/bootstrap.yml` has a hand-written `tls.certificates`
 entry pointing at them — the same "bypass Pangolin's own per-node logic"
 pattern as the router and DNS fixes above. Traefik reloads a referenced

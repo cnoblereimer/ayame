@@ -10,6 +10,7 @@ ayame/config/logs/
 ayame/config/traefik/logs/
 ayame/cert-sync/cert-sync-key
 ayame/cert-sync/cert-sync-key.pub
+ayame/cert-sync/dashboard-cert/
 michi/config/certificates/
 michi/config/dynamic/*
 !michi/config/dynamic/bootstrap.yml

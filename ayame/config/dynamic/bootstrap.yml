@@ -23,3 +23,22 @@ http:
       loadBalancer:
         servers:
           - url: "http://pangolin:3002"
+
+# Pangolin's certificate janitor reaps the dashboard domain's cert on this
+# node too, not just on michi: it deletes any directory under
+# certificates_path whose domain no active exit node claims, and nothing
+# claims the bare dashboard domain ("Certificate <domain> is no longer in
+# use" / "Cleaning up unused certificate directory" in pangolin's log, on a
+# ~3-cycle grace period). With the directory gone Traefik falls back to its
+# self-signed cert, which real clients reject outright - curl reports
+# "unknown CA" and closes mid-handshake, so requests fail with no HTTP
+# status at all.
+#
+# So the dashboard cert lives outside certificates_path here exactly as it
+# does on michi, in a directory Pangolin never scans, bind-mounted in
+# separately (see docker-compose.yml). Traefik reloads it automatically when
+# the file content changes.
+tls:
+  certificates:
+    - certFile: /var/dashboard-cert/cert.pem
+      keyFile: /var/dashboard-cert/key.pem

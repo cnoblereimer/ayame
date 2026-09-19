@@ -101,6 +101,12 @@ services:
       - ./config/traefik/logs:/var/log/traefik
       - ./config/certificates:/var/certificates:ro
       - ./config/dynamic:/var/dynamic:ro
+      # Separate from /var/certificates on purpose, same reason as on michi:
+      # Pangolin's cert janitor force-deletes any directory under
+      # certificates_path for a domain no active exit node claims, and
+      # nothing claims the bare dashboard domain - so the dashboard cert
+      # cannot live there on either node. This directory is never scanned.
+      - ./cert-sync/dashboard-cert:/var/dashboard-cert:ro
 
 networks:
   default:
