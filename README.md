@@ -142,7 +142,8 @@ above. Traefik reloads a referenced cert file automatically whenever its
 content changes, so nothing needs to touch `bootstrap.yml` again once this
 is set up; only the synced files change on renewal. The sync uses a
 restricted forced-command SSH key (michi can only read those two specific
-files on ayame, nothing else) rather than a general-purpose key.
+files on ayame, nothing else) rather than a general-purpose key. Setup commands are in
+[`cert-sync/README.md`](cert-sync/README.md).
 
 ## Source
 

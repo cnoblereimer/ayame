@@ -1,0 +1,6 @@
+[Unit]
+Description=Sync Pangolin dashboard cert from ayame
+
+[Service]
+Type=oneshot
+ExecStart=/opt/pangolin-cluster/cert-sync/michi/sync-dashboard-cert.sh
