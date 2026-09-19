@@ -1,0 +1,7 @@
+.env
+config/certificates/
+config/dynamic/
+config/GeoLite2-*.mmdb
+michi/config/certificates/
+michi/config/dynamic/
+michi/config/GeoLite2-*.mmdb

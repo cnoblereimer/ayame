@@ -1,46 +1,9 @@
 name: pangolin
 services:
-  postgres:
-    image: postgres:17
-    container_name: postgres
-    environment:
-      POSTGRES_DB: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432" # published publicly so michi can reach it - lock this down with a firewall rule (see README)
-    restart: always
-
-  redis:
-    image: redis:latest
-    container_name: redis
-    ports:
-      - "6379:6379" # published publicly so michi can reach it - lock this down with a firewall rule (see README)
-    restart: always
-
-  haproxy:
-    image: haproxy:2.9-alpine
-    container_name: haproxy
-    restart: unless-stopped
-    depends_on:
-      - gerbil
-    volumes:
-      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
-    ports:
-      - "80:80"
-      - "443:443"
-      - "3000:3000" # pangolin dashboard, load balanced across both nodes
-      - "8404:8404" # haproxy stats page
-
   pangolin:
     image: docker.io/fosrl/pangolin:ee-latest
     container_name: pangolin
     restart: unless-stopped
-    depends_on:
-      - postgres
-      - redis
     volumes:
       - ./config:/app/config
       - ./config/certificates:/var/certificates
@@ -59,7 +22,7 @@ services:
       pangolin:
         condition: service_healthy
     command:
-      - --reachableAt=http://<AYAME_PUBLIC_IP>:3004
+      - --reachableAt=http://<MICHI_PUBLIC_IP>:3004
       - --generateAndSaveKeyTo=/var/config/key
       - --remoteConfig=http://pangolin:3001/api/v1/
       - --trusted-upstreams=<AYAME_PUBLIC_IP>,<MICHI_PUBLIC_IP>
@@ -72,11 +35,10 @@ services:
       - 51820:51820/udp # wireguard
       - 21820:21820/udp # relay
       - 53:53/udp # DNS
-      - 3004:3004 # gerbil control API - needs to be reachable from michi
-      # 80/443/3000 are intentionally NOT published here: haproxy reaches
-      # this node over the internal "pangolin" docker network instead
-      # (gerbil:80, gerbil:8443, gerbil:3000), since haproxy already owns
-      # those ports on the host.
+      - 443:8443 # resources - haproxy on ayame connects here directly
+      - 80:80 # web - haproxy on ayame connects here directly
+      - 3004:3004 # gerbil control API - needs to be reachable from ayame
+      - 3000:3000 # pangolin dashboard - haproxy on ayame connects here directly
 
   traefik:
     image: docker.io/traefik:v3.7.11
@@ -98,6 +60,3 @@ networks:
   default:
     driver: bridge
     name: pangolin
-
-volumes:
-  postgres_data:
