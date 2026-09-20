@@ -117,6 +117,24 @@ Compare before and after with `md5sum` rather than assuming a copy
 happened, and check **every** host — an identical key on one node says
 nothing about the other.
 
+**If a stray exit node does get created, rename or delete it — marking it
+offline is not enough.** A node figures out which exit node it *is* by
+name, taking the first row returned, with no `online` filter and no
+ordering:
+
+```js
+// server/lib/exitNodes/getCurrentExitNodeId.ts
+const [exitNode] = await db.select({ exitNodeId: exitNodes.exitNodeId })
+    .from(exitNodes).where(eq(exitNodes.name, exitNodeName));
+```
+
+Nothing enforces unique names, so a duplicate (say two rows both named
+`michi`, one of them an orphan) makes the node's own identity depend on
+Postgres row order. Confirmed live: michi believed it was the orphaned
+exit node, so its Traefik config query matched no sites, it generated no
+routers, and it never claimed a domain — while looking perfectly healthy.
+The value is cached per process, so a restart is needed after renaming.
+
 ## Why `config/dynamic/bootstrap.yml` exists
 
 Pangolin never generates a Traefik router for its own admin dashboard —
