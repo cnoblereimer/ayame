@@ -26,14 +26,13 @@ from collections import deque
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-DASHBOARD = os.environ.get("DASHBOARD", "<DASHBOARD_DOMAIN>")
-RESOURCES = [r for r in os.environ.get("RESOURCES", "<RESOURCE_DOMAIN>").split(",") if r]
+# All infrastructure values come from the environment (see
+# docker-compose.yml), so this file carries no hostnames or IPs and stays
+# identical between the template and live-config repos.
+DASHBOARD = os.environ.get("DASHBOARD", "")
+RESOURCES = [r for r in os.environ.get("RESOURCES", "").split(",") if r]
 NODES = dict(
-    pair.split("=", 1)
-    for pair in os.environ.get(
-        "NODES", "ayame=<AYAME_PUBLIC_IP>,michi=<MICHI_PUBLIC_IP>"
-    ).split(",")
-    if "=" in pair
+    pair.split("=", 1) for pair in os.environ.get("NODES", "").split(",") if "=" in pair
 )
 INTERVAL = int(os.environ.get("INTERVAL", "30"))
 TIMEOUT = float(os.environ.get("TIMEOUT", "5"))
@@ -254,6 +253,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    if not DASHBOARD or not NODES:
+        raise SystemExit("set DASHBOARD and NODES (see docker-compose.yml)")
     load_state()
     threading.Thread(target=loop, daemon=True).start()
     print(f"monitor listening on :{PORT}, probing every {INTERVAL}s", flush=True)
