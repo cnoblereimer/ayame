@@ -460,11 +460,20 @@ bind-mounted as `/var/dashboard-cert`, referenced from
 same reason. ayame's copy is also what michi syncs *from*, so the sync no
 longer depends on a directory Pangolin deletes.
 
-Note what this does **not** solve: renewal. Pangolin renews certs it
-considers in use, and it does not consider this one in use. Whatever caused
-the exit-node association for the dashboard domain to disappear needs
-fixing in Pangolin itself before the cert's expiry, or both nodes will be
-serving an expired cert from their janitor-proof directories.
+**Both `tls.certificates` blocks are now commented out**, because pinning a
+site to each node fixed the underlying problem: each node claims the domain
+and Pangolin's own pipeline keeps the cert current in `cert_config.yml`.
+Leaving our static definition in place alongside it was actively harmful —
+Traefik kept the first definition it saw (ours) and logged `TLS certificate
+{...} already configured, skipping origin=cert_config.yml` on every reload,
+printing the full certificate **and private key** into the container log
+each time. It also meant Traefik served the static copy while ignoring the
+managed one, so a renewal would never have reached clients.
+
+The blocks are commented rather than deleted and the bind mounts are still
+in place, so if a node ever loses its claim again (its site offline long
+enough for the janitor to run), restoring the cert is: repopulate that
+node's janitor-proof directory and uncomment the block.
 
 The fix: a small SSH-based sync job on michi (systemd timer, every 6 hours)
 pulls `cert.pem`/`key.pem` from ayame's `cert-sync/dashboard-cert/` into

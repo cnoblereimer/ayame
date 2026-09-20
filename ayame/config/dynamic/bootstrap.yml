@@ -24,21 +24,28 @@ http:
         servers:
           - url: "http://pangolin:3002"
 
-# Pangolin's certificate janitor reaps the dashboard domain's cert on this
-# node too, not just on michi: it deletes any directory under
-# certificates_path whose domain no active exit node claims, and nothing
-# claims the bare dashboard domain ("Certificate <domain> is no longer in
-# use" / "Cleaning up unused certificate directory" in pangolin's log, on a
-# ~3-cycle grace period). With the directory gone Traefik falls back to its
-# self-signed cert, which real clients reject outright - curl reports
-# "unknown CA" and closes mid-handshake, so requests fail with no HTTP
-# status at all.
+# NO tls.certificates block here on purpose.
 #
-# So the dashboard cert lives outside certificates_path here exactly as it
-# does on michi, in a directory Pangolin never scans, bind-mounted in
-# separately (see docker-compose.yml). Traefik reloads it automatically when
-# the file content changes.
-tls:
-  certificates:
-    - certFile: /var/dashboard-cert/cert.pem
-      keyFile: /var/dashboard-cert/key.pem
+# There used to be one, pointing at a janitor-proof copy in
+# /var/dashboard-cert, because Pangolin's cert janitor deletes the
+# dashboard domain's cert from certificates_path on any node where no
+# active exit node claims that domain - leaving Traefik on its self-signed
+# fallback, which real clients reject outright.
+#
+# Now that a site is pinned to each node (see README, "Rolling pangolin
+# updates"), both nodes claim the domain and Pangolin's own pipeline keeps
+# the cert current in cert_config.yml. Defining it here as well made
+# Traefik log `TLS certificate {...} already configured, skipping
+# origin=cert_config.yml` on every reload - dumping the full certificate
+# AND PRIVATE KEY into the container log - and, worse, meant Traefik served
+# the static copy while ignoring the managed one, so a renewal would never
+# have reached clients.
+#
+# If a node ever loses its claim on the domain again (its site goes offline
+# for long enough), restore the block below and repopulate
+# cert-sync/dashboard-cert/. The mount is still in place for that.
+#
+# tls:
+#   certificates:
+#     - certFile: /var/dashboard-cert/cert.pem
+#       keyFile: /var/dashboard-cert/key.pem

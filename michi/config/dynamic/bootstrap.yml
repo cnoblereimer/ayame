@@ -41,7 +41,13 @@ http:
 # domains (michi never has one), typically within ~15 seconds. This path
 # is a separate bind mount (see docker-compose.yml) that Pangolin never
 # scans.
-tls:
-  certificates:
-    - certFile: /var/dashboard-cert/cert.pem
-      keyFile: /var/dashboard-cert/key.pem
+# Disabled - see ayame/config/dynamic/bootstrap.yml for the full reason.
+# Short version: this node now has a site pinned to it, so it claims the
+# domain and Pangolin's own pipeline maintains the cert. Defining it here
+# too made Traefik skip the managed copy and log the certificate and
+# private key on every reload.
+#
+# tls:
+#   certificates:
+#     - certFile: /var/dashboard-cert/cert.pem
+#       keyFile: /var/dashboard-cert/key.pem
