@@ -72,8 +72,10 @@ setup, so:
 1. On **ayame**: copy the contents of `ayame/` to the host's deployment
    directory (e.g. `/opt/pangolin-cluster`), copy `.env.example` to `.env`
    and fill in `POSTGRES_PASSWORD`, fill in all placeholders above, drop
-   `GeoLite2-Country.mmdb` / `GeoLite2-ASN.mmdb` into `config/`, then
-   `docker compose up -d`.
+   `GeoLite2-Country.mmdb` / `GeoLite2-ASN.mmdb` into `config/`, create the
+   haproxy runtime socket directory (`mkdir -p haproxy/run && sudo chown
+   99:99 haproxy/run` — haproxy crash-loops without it, see "Rolling
+   pangolin updates"), then `docker compose up -d`.
 2. Open the firewall rules noted above so michi can reach ayame's Postgres,
    Redis, and gerbil control API.
 3. On **michi**: copy the contents of `michi/` to the host's deployment
@@ -267,22 +269,42 @@ router on both, each proxying through its own tunnel.
 to a node that is about to stop. Relying on the health check alone costs a
 couple of `502`s while it notices — measured, not theoretical.
 
-From ayame (the socket is a bind mount, `ayame/haproxy/run/admin.sock`):
+The socket lives on a bind mount at `ayame/haproxy/run/admin.sock`. That
+directory is gitignored, so **it has to be created and chowned to the
+image's `haproxy` user before starting haproxy** — the container drops
+privileges and cannot bind a socket in a root-owned directory. It fails
+closed: haproxy refuses to start at all and crash-loops, taking port 443
+down with it.
+
+```bash
+mkdir -p haproxy/run
+sudo chown 99:99 haproxy/run     # confirm with: docker run --rm haproxy:3.4-alpine id haproxy
+```
+
+Then, to update a node:
 
 ```bash
 # drain - existing connections finish, no new ones are sent
 echo "set server websecure_back/michi state maint" | \
-  sudo socat stdio /opt/pangolin-cluster/haproxy/run/admin.sock
+  sudo socat stdio UNIX-CONNECT:/opt/pangolin-cluster/haproxy/run/admin.sock
 
 # ... update that node: docker compose pull && docker compose up -d ...
 
 # put it back
 echo "set server websecure_back/michi state ready" | \
-  sudo socat stdio /opt/pangolin-cluster/haproxy/run/admin.sock
+  sudo socat stdio UNIX-CONNECT:/opt/pangolin-cluster/haproxy/run/admin.sock
 ```
 
-`nc -U` works in place of `socat` if that is what the host has. Check the
-result on the stats page (`:8404/stats`) — the drained server shows MAINT.
+**The `UNIX-CONNECT:` prefix is mandatory.** A bare path makes socat use
+`GOPEN`, which *creates a regular file* at that path instead of connecting
+to the socket. Doing that replaces `admin.sock` with a text file, and
+haproxy then cannot rebind it (`error when trying to preserve previous UNIX
+socket`) — another crash loop, another 443 outage. Learned the hard way.
+`nc -U <path>` is a safer alternative if the host has it, since it has no
+such footgun.
+
+Check the result on the stats page (`:8404/stats`) — the drained server
+shows MAINT.
 Substitute `websecure_back/ayame` when updating the other node; the same
 applies to `web_back` and `dashboard_back` if a node is going down long
 enough to matter for plain HTTP or the dashboard port.
