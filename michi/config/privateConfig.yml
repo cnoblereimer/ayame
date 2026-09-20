@@ -19,7 +19,13 @@ dns:
   # Kept in sync with ayame's config/privateConfig.yml - see the comment
   # there. Only ayame's DNS server is publicly reachable today, but this
   # keeps michi's answer consistent if that ever changes.
+  # Must match ayame's list exactly - either node may answer a query, and
+  # a resource hostname missing here would resolve to a single exit node
+  # instead of the load balancer. See ayame's copy for why.
   static_records:
     - domain: "<DASHBOARD_DOMAIN>"
+      type: "A"
+      value: "<AYAME_PUBLIC_IP>"
+    - domain: "<RESOURCE_DOMAIN>"
       type: "A"
       value: "<AYAME_PUBLIC_IP>"

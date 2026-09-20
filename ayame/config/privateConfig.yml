@@ -23,7 +23,17 @@ dns:
   # without this it's a permanent NXDOMAIN. This is the DNS-layer
   # counterpart of config/dynamic/bootstrap.yml (which solves the same
   # gap for Traefik routing).
+  # Each resource hostname also needs an entry here, pointing at the
+  # HAProxy host rather than an exit node. Pangolin's DNS otherwise answers
+  # a resource with one exit node's IP, picked by hashing the hostname, so
+  # clients pin to a single node and never reach the load balancer - which
+  # defeats draining a node for updates. Static records are matched before
+  # resource records and win outright, but only on an exact hostname
+  # match: one entry per resource, added whenever a resource is added.
   static_records:
     - domain: "<DASHBOARD_DOMAIN>"
+      type: "A"
+      value: "<AYAME_PUBLIC_IP>"
+    - domain: "<RESOURCE_DOMAIN>"
       type: "A"
       value: "<AYAME_PUBLIC_IP>"

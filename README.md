@@ -223,6 +223,76 @@ that node's authoritative DNS server (it owns `53/udp`), and no
 load-balancer health check can compensate for a dead nameserver — see the
 `ns.simplycrafted.net` section above.
 
+## Rolling pangolin updates (HA for resources)
+
+Pangolin's clustering gives a *site* one exit node at a time:
+`sites.exitNodeId` is a single column, and
+`handleNewtExitNodesRequestMessage.ts` hands newt a weighted list to pick
+**one** from. So a resource is served only by the node its site is attached
+to, and stopping that node's `pangolin` takes the resource down — the
+`badger` middleware calls `pangolin:3001` on every request, so a running
+Traefik alone isn't enough.
+
+The way to get a resource served by both nodes is to give it a target on a
+site attached to each. Each node builds its Traefik config from
+`sites INNER JOIN targets INNER JOIN resources WHERE sites.exitNodeId =
+<this node>` (`getTraefikConfig.ts`), so a dual-homed resource gets a
+router on both, each proxying through its own tunnel.
+
+**Setup:**
+
+1. Run **two newt clients** on the site host, registering as two sites.
+2. Pin one site per node by capping each exit node at a single connection.
+   `calculateExitNodeWeight` returns `null` at capacity, which filters that
+   node out of the list newt is offered:
+   ```sql
+   UPDATE "exitNodes" SET "maxConnections" = 1 WHERE online = true;
+   ```
+   No API or UI writes this column, so it is set directly in Postgres. It
+   survives restarts: re-registration only updates `reachableAt`/`online`.
+   Restart the second newt after setting it, so it re-selects onto the
+   other node.
+3. Give **every resource a second target** — same internal IP and port, via
+   the second site.
+4. Add a `dns.static_records` entry per resource hostname pointing at the
+   HAProxy host, on **both** nodes. Pangolin's DNS otherwise answers with a
+   single exit node's IP, chosen by hashing the hostname
+   (`selectDeterministicExitNode`), which pins clients to one node and
+   bypasses the load balancer. Static records are matched before resource
+   records and win outright — but only on an exact hostname match, so
+   there is one entry per resource.
+5. Leave `websecure_front` balanced across both nodes (its default).
+
+**Then updating a node is:**
+
+```bash
+docker compose stop pangolin      # health check fails, haproxy drains it
+docker compose pull && docker compose up -d pangolin
+```
+
+The `websecure_back` health check is what makes this safe: it fails within
+seconds of pangolin stopping, so HAProxy stops sending that node traffic
+before clients notice. Tighten `inter`/`fall` on the server lines if the
+default detection window is too slow.
+
+**Caveats:**
+
+- **Every resource must be dual-homed.** A single-target resource is served
+  by one node, and the balanced frontend will send half its traffic to a
+  node that answers `404`. Adding a resource means adding two targets and
+  a static record, every time.
+- **`maxConnections` counts clients too**, not just sites
+  (`calculateExitNodeWeight` sums `sites` and `clients`). A cap of 1 will
+  refuse Pangolin client VPN connections. If you use those, pin sites with
+  remote exit nodes and `remoteExitNodePreferenceLabels` instead.
+- **The cap intentionally prevents newt failover** — a site cannot relocate
+  to a node that is already at capacity. That is the point here
+  (availability comes from the other site already serving, not from
+  relocation), but it means a node that stays down leaves its site down.
+- **Postgres, Redis, and HAProxy are still ayame-only.** This makes the
+  pangolin/gerbil/traefik layer rolling-updatable; it does not make ayame
+  expendable.
+
 ## Why the dashboard cert is synced from ayame to michi
 
 Pangolin's certificate pipeline (`TraefikConfigManager.ts`) is scoped **per
