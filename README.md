@@ -299,17 +299,25 @@ mkdir -p haproxy/run
 sudo chown 99:99 haproxy/run     # confirm with: docker run --rm haproxy:3.4-alpine id haproxy
 ```
 
-Then, to update a node:
+Then, to update a node, use `ayame/haproxy/node-state.sh` — it drains all
+three backends at once and refuses to run if the socket path isn't
+actually a socket:
 
 ```bash
-# drain - existing connections finish, no new ones are sent
+# on ayame
+sudo ./haproxy/node-state.sh michi maint
+
+# on the node being updated
+docker compose pull && docker compose up -d
+
+# back on ayame, once it is healthy
+sudo ./haproxy/node-state.sh michi ready
+```
+
+The equivalent by hand, if the script isn't available:
+
+```bash
 echo "set server websecure_back/michi state maint" | \
-  sudo socat stdio UNIX-CONNECT:/opt/pangolin-cluster/haproxy/run/admin.sock
-
-# ... update that node: docker compose pull && docker compose up -d ...
-
-# put it back
-echo "set server websecure_back/michi state ready" | \
   sudo socat stdio UNIX-CONNECT:/opt/pangolin-cluster/haproxy/run/admin.sock
 ```
 
@@ -330,6 +338,33 @@ enough to matter for plain HTTP or the dashboard port.
 The health check remains the backstop for *unplanned* failures, tightened
 to `inter 1s fall 2` so an unexpected pangolin death is caught in about two
 seconds rather than six.
+
+### Checking HA
+
+`ayame/ha-check.sh` probes every hostname three ways — through the load
+balancer and pinned to each node directly — and prints the haproxy backend
+states first. The pinned probes are the point: a resource homed on only one
+node still passes the load-balanced check about half the time, which is
+exactly how one went unnoticed here.
+
+```bash
+sudo ./ha-check.sh          # 10 requests per probe
+sudo ./ha-check.sh 40       # more, e.g. while draining a node
+```
+
+Add each new resource hostname to the `RESOURCES` array at the top. Run it
+after adding a resource, after either node is updated, and before trusting
+the cluster after any change to sites or exit nodes.
+
+Scenarios worth exercising by hand, all of which have actually broken here:
+
+| Test | Expected |
+|---|---|
+| `node-state.sh michi maint`, then update michi | no failed requests at all |
+| `docker compose stop pangolin` on one node (no drain) | ~2s of errors, then clean |
+| `docker compose down` on one node | as above, plus possible DNS blips — that node's nameserver goes too |
+| Add a resource with one target | `ha-check.sh` fails the pinned probe for the node it is missing from |
+| Both nodes up, steady state | `ha-check.sh` fully green |
 
 **Caveats:**
 
