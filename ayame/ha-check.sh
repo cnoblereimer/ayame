@@ -23,8 +23,10 @@ probe() { # host, label, [resolve-ip]
     local host="$1" label="$2" ip="${3:-}" args=() bad=0 codes=""
     [ -n "$ip" ] && args+=(--resolve "$host:443:$ip")
     for _ in $(seq 1 "$n"); do
+        # curl already prints 000 via -w when it fails to connect, so this
+        # must not add a fallback of its own or the codes come out doubled.
         code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
-            "${args[@]}" "https://$host/" || echo 000)
+            "${args[@]}" "https://$host/")
         codes+="$code "
         [ "$code" = "200" ] || bad=$((bad + 1))
     done
