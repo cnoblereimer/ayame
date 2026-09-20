@@ -28,6 +28,9 @@ services:
       - gerbil
     volumes:
       - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      # Holds the runtime API socket, so a node can be drained from the
+      # host before it is taken down for updates (see README).
+      - ./haproxy/run:/var/run/haproxy
     ports:
       - "80:80"
       - "443:443"

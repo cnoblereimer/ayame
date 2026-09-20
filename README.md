@@ -263,17 +263,33 @@ router on both, each proxying through its own tunnel.
    there is one entry per resource.
 5. Leave `websecure_front` balanced across both nodes (its default).
 
-**Then updating a node is:**
+**Then updating a node is:** drain it first, so no request is ever routed
+to a node that is about to stop. Relying on the health check alone costs a
+couple of `502`s while it notices — measured, not theoretical.
+
+From ayame (the socket is a bind mount, `ayame/haproxy/run/admin.sock`):
 
 ```bash
-docker compose stop pangolin      # health check fails, haproxy drains it
-docker compose pull && docker compose up -d pangolin
+# drain - existing connections finish, no new ones are sent
+echo "set server websecure_back/michi state maint" | \
+  sudo socat stdio /opt/pangolin-cluster/haproxy/run/admin.sock
+
+# ... update that node: docker compose pull && docker compose up -d ...
+
+# put it back
+echo "set server websecure_back/michi state ready" | \
+  sudo socat stdio /opt/pangolin-cluster/haproxy/run/admin.sock
 ```
 
-The `websecure_back` health check is what makes this safe: it fails within
-seconds of pangolin stopping, so HAProxy stops sending that node traffic
-before clients notice. Tighten `inter`/`fall` on the server lines if the
-default detection window is too slow.
+`nc -U` works in place of `socat` if that is what the host has. Check the
+result on the stats page (`:8404/stats`) — the drained server shows MAINT.
+Substitute `websecure_back/ayame` when updating the other node; the same
+applies to `web_back` and `dashboard_back` if a node is going down long
+enough to matter for plain HTTP or the dashboard port.
+
+The health check remains the backstop for *unplanned* failures, tightened
+to `inter 1s fall 2` so an unexpected pangolin death is caught in about two
+seconds rather than six.
 
 **Caveats:**
 
