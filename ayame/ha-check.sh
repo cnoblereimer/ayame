@@ -19,6 +19,9 @@ SOCK="${HAPROXY_SOCK:-/opt/pangolin-cluster/haproxy/run/admin.sock}"
 n="${1:-10}"
 failures=0
 
+lb_failures=0
+pinned_only_failures=0
+
 probe() { # host, label, [resolve-ip]
     local host="$1" label="$2" ip="${3:-}" args=() bad=0 codes=""
     [ -n "$ip" ] && args+=(--resolve "$host:443:$ip")
@@ -35,6 +38,11 @@ probe() { # host, label, [resolve-ip]
     else
         printf '  FAIL  %-28s %d/%d bad: %s\n' "$label" "$bad" "$n" "$codes"
         failures=$((failures + 1))
+        if [ -z "$ip" ]; then
+            lb_failures=$((lb_failures + 1))
+        else
+            pinned_only_failures=$((pinned_only_failures + 1))
+        fi
     fi
 }
 
@@ -77,8 +85,15 @@ if [ "$failures" -eq 0 ]; then
     echo "all checks passed"
 else
     echo "$failures check(s) failed"
-    echo "a hostname that passes through the load balancer but fails pinned"
-    echo "to one node is served by only that node - it needs a target on"
-    echo "both sites (see README, \"Rolling pangolin updates\")."
+    if [ "$lb_failures" -gt 0 ]; then
+        echo "the load balancer itself failed, so this is not about which node"
+        echo "serves what - the same failure on both nodes usually means the"
+        echo "resource's target is unreachable (503 from Traefik = no server"
+        echo "available) or the site's tunnel is down."
+    elif [ "$pinned_only_failures" -gt 0 ]; then
+        echo "a hostname that passes through the load balancer but fails pinned"
+        echo "to one node is served by only that node - it needs a target on"
+        echo "both sites (see README, \"Rolling pangolin updates\")."
+    fi
 fi
 exit "$failures"
