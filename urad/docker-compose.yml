@@ -1,0 +1,22 @@
+name: pangolin-monitor
+services:
+  monitor:
+    image: python:3.12-alpine
+    container_name: pangolin-monitor
+    restart: unless-stopped
+    command: ["python", "-u", "/app/monitor.py"]
+    volumes:
+      - ./monitor.py:/app/monitor.py:ro
+      - ./data:/data # probe history, so a restart doesn't lose the record
+    environment:
+      DASHBOARD: <DASHBOARD_DOMAIN>
+      # Comma separated - add every resource hostname, same as ha-check.sh
+      RESOURCES: <RESOURCE_DOMAIN>
+      NODES: ayame=<AYAME_PUBLIC_IP>,michi=<MICHI_PUBLIC_IP>
+      INTERVAL: "30"
+      # Reads backend up/down straight from haproxy. Leave empty if the
+      # stats port is not reachable from here.
+      HAPROXY_STATS: http://<AYAME_PUBLIC_IP>:8404/stats;csv
+    ports:
+      # Published on the host so newt can reach it as a resource target.
+      - "8080:8080"

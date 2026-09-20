@@ -366,6 +366,45 @@ Scenarios worth exercising by hand, all of which have actually broken here:
 | Add a resource with one target | `ha-check.sh` fails the pinned probe for the node it is missing from |
 | Both nodes up, steady state | `ha-check.sh` fully green |
 
+### Continuous monitoring (`urad/`)
+
+`ha-check.sh` is a point-in-time check run by hand from ayame. `urad/` is
+the continuous version, and it deliberately runs on the **site host rather
+than a cluster node**, so it probes the same path a real client takes:
+public DNS, HAProxy, whichever node answers, and the target behind it.
+
+It probes every hostname three ways (load balancer, pinned to each node
+with SNI intact) on an interval, keeps rolling history across restarts, and
+serves a status page plus `api/status` JSON. **Certificates are validated** —
+a node serving Traefik's self-signed fallback fails loudly here, rather
+than looking like a flaky connection, which is precisely how that outage
+presented.
+
+```bash
+# on urad
+mkdir -p data
+docker compose up -d
+curl -s localhost:8080/api/status | head
+```
+
+Then serve it through the cluster like any other resource, which makes the
+monitor itself HA: create a resource pointing at urad's tunnel IP on port
+`8080`, give it **two targets** (one per site), add a `dns.static_records`
+entry for its hostname on both nodes, and add that hostname to
+`RESOURCES` here and in `ha-check.sh`.
+
+Two things to keep in mind:
+
+- **A monitor served through the cluster cannot report a total cluster
+  outage** — the page is unreachable exactly when it matters most. It keeps
+  recording locally, so the gap is visible afterward, but also reach it
+  directly on urad (`http://urad:8080`, or a pfSense override) for the case
+  where the cluster is down.
+- **Don't set `INTERVAL` too low.** Each cycle opens one connection per
+  hostname per node; a firewall with a rate limit on 443 will start
+  dropping them and the monitor will report failures it caused itself.
+  30s is comfortable.
+
 **Caveats:**
 
 - **Every resource must be dual-homed.** A single-target resource is served
