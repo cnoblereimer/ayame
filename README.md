@@ -411,6 +411,18 @@ Two things to keep in mind:
   by one node, and the balanced frontend will send half its traffic to a
   node that answers `404`. Adding a resource means adding two targets and
   a static record, every time.
+- **Changing a target's address does not move its health check.** Confirmed
+  live: after repointing a resource from one host to another, newt logged
+  `Started tcp proxy to <new address>` (correct) alongside `Starting health
+  check monitoring for target N (<old address>)` and then
+  `health check failed with status code 404` / `initial status: unhealthy`.
+  An unhealthy target is dropped from the server list
+  (`getTraefikConfig.ts:590-598`), so Pangolin emits the router with
+  `servers: []` and Traefik answers **503** — with a data path that looks
+  entirely correct end to end. Update or disable the health check on each
+  target when its address changes, and restart newt so it re-reads the
+  config. A `503` where `curl` to the target works from inside newt's
+  namespace is almost always this.
 - **`maxConnections` counts clients too**, not just sites
   (`calculateExitNodeWeight` sums `sites` and `clients`). A cap of 1 will
   refuse Pangolin client VPN connections. If you use those, pin sites with
