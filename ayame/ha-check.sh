@@ -38,20 +38,38 @@ probe() { # host, label, [resolve-ip]
     fi
 }
 
+ayame_state="unknown"
+michi_state="unknown"
+
 echo "haproxy backend state:"
 if [ -S "$SOCK" ]; then
-    printf 'show stat\n' | socat stdio "UNIX-CONNECT:$SOCK" |
+    stats=$(printf 'show stat\n' | socat stdio "UNIX-CONNECT:$SOCK")
+    echo "$stats" |
         awk -F, '$1 ~ /_back$/ && $2 !~ /BACKEND|FRONTEND/ && $2 != "" { print "  " $1 "/" $2 ": " $18 }'
+    # websecure_back is the one that matters for these probes
+    ayame_state=$(echo "$stats" | awk -F, '$1=="websecure_back" && $2=="ayame" { print $18 }')
+    michi_state=$(echo "$stats" | awk -F, '$1=="websecure_back" && $2=="michi" { print $18 }')
 else
     echo "  (runtime socket not available at $SOCK)"
 fi
+
+# A node that is drained or already down is *expected* to fail its pinned
+# probe - reporting that as a failure buries the one result that matters
+# (whether the load balancer still serves everything) under noise, and
+# points at dual-homing, which is not the problem.
+pinned() { # host, node-label, ip, state
+    case "$4" in
+        UP*) probe "$1" "pinned to $2" "$3" ;;
+        *) printf '  skip  %-28s node is %s\n' "pinned to $2" "${4:-unreachable}" ;;
+    esac
+}
 
 for host in "$DASHBOARD" "${RESOURCES[@]}"; do
     echo
     echo "$host:"
     probe "$host" "via load balancer"
-    probe "$host" "pinned to ayame" "$AYAME_IP"
-    probe "$host" "pinned to michi" "$MICHI_IP"
+    pinned "$host" "ayame" "$AYAME_IP" "$ayame_state"
+    pinned "$host" "michi" "$MICHI_IP" "$michi_state"
 done
 
 echo
