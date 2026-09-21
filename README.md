@@ -174,7 +174,22 @@ per-host and stay out of git. On **each** node:
 
 ```bash
 cd /opt/pangolin-cluster
-umask 077 && wg genkey | sudo tee wireguard/privatekey | wg pubkey
+(umask 077; wg genkey | sudo tee wireguard/privatekey | wg pubkey)
+```
+
+The subshell matters. `umask 077 && ...` leaves the umask set for the rest
+of that shell session, so every file a later `git pull` writes lands as
+`600` — which breaks haproxy specifically, since it is the one container
+here that drops privileges and cannot then read its own config
+(`Could not open configuration file ... Permission denied`, crash loop,
+443 down). Learned the hard way. If it happens anyway:
+
+```bash
+cd /opt/pangolin-cluster-repo
+sudo find . -path ./.git -prune -o -type f \
+  ! -name '*.pem' ! -name 'privatekey' ! -name '.env' -exec chmod 644 {} +
+sudo chmod +x ayame/ha-check.sh ayame/haproxy/node-state.sh \
+  ayame/cert-sync/*.sh michi/cert-sync/*.sh
 ```
 
 That prints the **public** key — put each node's public key into the
