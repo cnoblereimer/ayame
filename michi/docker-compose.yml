@@ -1,9 +1,37 @@
 name: pangolin
 services:
+  # This node's half of the inter-node link. network_mode: host so the
+  # wg-cluster interface lands in the HOST namespace and this node's
+  # containers can route to ayame's 10.88.0.1 for Postgres and Redis.
+  wireguard:
+    image: lscr.io/linuxserver/wireguard:latest
+    container_name: wireguard
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    volumes:
+      - ./wireguard:/config
+      - /lib/modules:/lib/modules:ro # only needed if wireguard isn't built into the kernel
+    healthcheck:
+      test: ["CMD-SHELL", "wg show wg-cluster >/dev/null 2>&1"]
+      interval: "10s"
+      timeout: "5s"
+      retries: 12
+      start_period: "15s"
+
   pangolin:
     image: docker.io/fosrl/pangolin:ee-postgresql-latest
     container_name: pangolin
     restart: unless-stopped
+    depends_on:
+      # Its database and Redis are both across the tunnel, so starting
+      # before it is up just means a crash loop until it comes up.
+      wireguard:
+        condition: service_healthy
     volumes:
       - ./config:/app/config
       - ./config/certificates:/var/certificates

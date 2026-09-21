@@ -144,8 +144,20 @@ password at all** — it says so on startup: `Redis does not require
 authentication and is not protected by network restrictions`. Network
 reachability was the entirety of its access control.
 
-A host-level WireGuard link fixes the transport. `wireguard/wg-cluster.conf`
-in each host's folder is that host's half:
+A WireGuard link between the nodes fixes the transport. It runs as a
+service in each host's `docker-compose.yml`, so deploying it is the same
+`git pull && docker compose up -d` as everything else — no separate
+systemd unit to keep in sync.
+
+`network_mode: host` is load-bearing: the `wg-cluster` interface has to
+exist in the **host** namespace, both so docker can publish Postgres and
+Redis on `10.88.0.1` and so michi's containers can route to it. Postgres
+and Redis `depends_on` the tunnel's healthcheck (`wg show wg-cluster`), so
+they never try to bind an address that doesn't exist yet — which is what
+makes this survive a reboot without a docker/systemd ordering hack.
+
+`wireguard/wg_confs/wg-cluster.conf` in each host's folder is that host's
+half:
 
 | | ayame | michi |
 |---|---|---|
@@ -156,18 +168,23 @@ in each host's folder is that host's half:
 Pangolin's own tunnels. `10.88.0.0/30` avoids both gerbil's `100.89.0.0/16`
 and the LAN behind urad.
 
-**Setup, on each host:**
+**Setup.** The configs come from the repo; only the private keys are
+per-host and stay out of git. On **each** node:
 
 ```bash
-sudo apt install -y wireguard-tools
-umask 077 && wg genkey | tee /tmp/wg-priv | wg pubkey   # keep the private, send the public
-sudo install -m 600 /dev/null /etc/wireguard/wg-cluster.conf
-sudo cp wireguard/wg-cluster.conf /etc/wireguard/wg-cluster.conf   # then fill in the keys
-sudo systemctl enable --now wg-quick@wg-cluster
+cd /opt/pangolin-cluster
+umask 077 && wg genkey | sudo tee wireguard/privatekey | wg pubkey
 ```
 
-Open the tunnel port to the peer only, then verify before changing anything
-else:
+That prints the **public** key — put each node's public key into the
+*other* node's `wg_confs/wg-cluster.conf` as the peer's `PublicKey`, commit,
+and pull on both. The configs carry no `PrivateKey` line at all; each
+brings its key in at interface setup with
+`PostUp = wg set %i private-key /config/privatekey`, which is what lets the
+config itself live in git.
+
+Open the tunnel port to the peer only, bring it up, and verify before
+pointing anything at it:
 
 ```bash
 # ayame
@@ -175,36 +192,27 @@ sudo ufw allow from <michi public IP> to any port 51821 proto udp
 # michi
 sudo ufw allow from <ayame public IP> to any port 51821 proto udp
 
-sudo wg show wg-cluster          # expect a recent handshake
-ping -c3 10.88.0.1               # from michi
+docker compose up -d wireguard
+docker compose exec wireguard wg show wg-cluster   # expect a recent handshake
+ping -c3 10.88.0.1                                 # from michi
 ```
 
-**Then move the services onto it.** `ayame/docker-compose.yml` binds
-Postgres and Redis to `10.88.0.1` instead of every interface, and michi's
-`config.yml` / `privateConfig.yml` point at `10.88.0.1`. Once that is
-confirmed working, drop the old public firewall allowances:
+Only once that ping works, bring up the rest (`docker compose up -d`).
+Postgres and Redis wait on the tunnel's healthcheck, so they will hold
+rather than fail if it isn't ready.
+
+Then drop the old public exposure:
 
 ```bash
-# ayame - these should no longer be needed
+# ayame - no longer needed once michi connects over the tunnel
 sudo ufw status numbered | grep -E '5432|6379'
 sudo ufw delete <number>          # highest number first
 ```
 
-**The ordering trap:** binding a published port to `10.88.0.1` means docker
-cannot start those containers until the WireGuard interface exists. On
-reboot, if docker comes up first, Postgres and Redis fail to bind and the
-whole cluster is down until the interface appears. `restart: always` makes
-them retry, which usually resolves it, but make it deterministic:
-
-```bash
-sudo mkdir -p /etc/systemd/system/docker.service.d
-printf '[Unit]\nAfter=wg-quick@wg-cluster.service\nWants=wg-quick@wg-cluster.service\n' | \
-  sudo tee /etc/systemd/system/docker.service.d/wg-cluster.conf
-sudo systemctl daemon-reload
-```
-
-Test it with an actual reboot rather than assuming — this is the kind of
-thing that only shows up months later at the worst moment.
+Worth an actual reboot test on ayame afterward. The `depends_on` healthcheck
+should hold Postgres and Redis until the interface exists, but a reboot is
+the only way to know — and this is exactly the kind of thing that otherwise
+surfaces months later at the worst possible moment.
 
 **Still not covered:** HAProxy reaches michi over the public internet for
 ports 80, 443, and 3000. Port 443 is TLS end to end, but `dashboard_back`

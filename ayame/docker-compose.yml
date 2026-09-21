@@ -1,5 +1,31 @@
 name: pangolin
 services:
+  # Inter-node link for Postgres and Redis. network_mode: host is
+  # load-bearing: the wg-cluster interface has to exist in the HOST
+  # namespace for docker to publish those services on 10.88.0.1, and for
+  # michi's containers to route to it.
+  wireguard:
+    image: lscr.io/linuxserver/wireguard:latest
+    container_name: wireguard
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    volumes:
+      - ./wireguard:/config
+      - /lib/modules:/lib/modules:ro # only needed if wireguard isn't built into the kernel
+    healthcheck:
+      # Postgres and Redis wait on this - without it they would try to bind
+      # 10.88.0.1 before the interface exists and fail to start.
+      test: ["CMD-SHELL", "wg show wg-cluster >/dev/null 2>&1"]
+      interval: "10s"
+      timeout: "5s"
+      retries: 12
+      start_period: "15s"
+
   postgres:
     image: postgres:17
     container_name: postgres
@@ -15,6 +41,9 @@ services:
       # docker starts the container - see README, "Private network between
       # the nodes".
       - "10.88.0.1:5432:5432"
+    depends_on:
+      wireguard:
+        condition: service_healthy
     restart: always
 
   redis:
@@ -25,6 +54,9 @@ services:
       # Redis takes no password, so network reachability is the whole of
       # its access control.
       - "10.88.0.1:6379:6379"
+    depends_on:
+      wireguard:
+        condition: service_healthy
     restart: always
 
   haproxy:
