@@ -64,6 +64,19 @@ probe() { # label, host, curl-args...
     fi
 }
 
+# A config file the haproxy user cannot read does not break anything until
+# the next restart - and then it crash-loops with "Could not open
+# configuration file ... Permission denied" and takes 80/443/3000 with it.
+# That has happened three times here, always after a git pull in a shell
+# where "umask 077" was still set. Catch it while it is still harmless.
+CFG="${HAPROXY_CFG:-/opt/pangolin-cluster/haproxy/haproxy.cfg}"
+if [ -f "$CFG" ] && [ ! "$(stat -c '%a' "$CFG" | cut -c3)" -ge 4 ] 2>/dev/null; then
+    echo "WARNING: $CFG is not world-readable ($(stat -c '%a' "$CFG"))."
+    echo "         haproxy runs as uid 99 and will crash-loop on its next"
+    echo "         restart. Fix with: sudo chmod 644 $CFG"
+    echo
+fi
+
 echo "haproxy backend state (this node's load balancer):"
 if [ -S "$SOCK" ]; then
     printf 'show stat\n' | socat stdio "UNIX-CONNECT:$SOCK" |
