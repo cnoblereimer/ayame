@@ -221,10 +221,20 @@ lines at `10.88.0.2` would fix that and remove the need for michi to
 publish those ports publicly at all — worth doing, but it changes the
 ingress path, so validate it the same way the health check was validated.
 
-**Redis still has no password.** The tunnel means it is no longer reachable
-from the internet, but anything that lands on either host can talk to it
-freely. Setting `requirepass` and the matching `redis.password` in both
-nodes' `privateConfig.yml` is the next step.
+**Redis requires a password.** The tunnel stops it being reachable from
+the internet, but anything landing on either host could still talk to it,
+so `redis-server --requirepass` is set on ayame and both nodes' pangolin
+gets `REDIS_PASSWORD`. Pangolin reads `redis.password` from that env var
+(`readConfigFile.ts`, `getEnvOrYaml`), so the secret lives in each host's
+gitignored `.env` rather than in `privateConfig.yml`. **The value must be
+identical on both hosts** — see `.env.example` in each folder.
+
+**HAProxy reaches michi over the tunnel** (`10.88.0.2`), not its public IP.
+`dashboard_back` carries port 3000 in cleartext and used to send it across
+the public internet; `websecure_back` was already TLS end to end but has no
+reason to leave the tunnel either. michi still publishes those ports
+publicly so the monitor's pinned probes (and a future direct-to-michi DNS
+path) keep working.
 
 ## Why `config/dynamic/bootstrap.yml` exists
 
@@ -613,6 +623,13 @@ looked like flaky networking or a load-balancer fault. It was neither —
 every request round-robined onto ayame hit the self-signed cert and was
 rejected client-side, while every request onto michi succeeded. Stopping
 michi took it to 100% failure and finally made it obvious.
+
+**This sync is now redundant** — both nodes claim the domain and maintain
+their own cert, and the `tls.certificates` blocks that consumed the synced
+copy are commented out. Leave the timer running until it has survived one
+real renewal, then disable it (`systemctl disable --now
+pangolin-cert-sync.timer` on michi). Keep the scripts and mounts: if a node
+ever loses its claim again, re-enabling both is the fastest recovery.
 
 **The cert files must not land in `config/certificates/` on either node.**
 That directory is also Pangolin's own certificate store, and its janitor

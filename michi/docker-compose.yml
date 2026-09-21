@@ -31,6 +31,9 @@ services:
     image: docker.io/fosrl/pangolin:ee-postgresql-latest
     container_name: pangolin
     restart: unless-stopped
+    environment:
+      # Must match ayame's REDIS_PASSWORD - see michi/.env.example.
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     depends_on:
       # Its database and Redis are both across the tunnel, so starting
       # before it is up just means a crash loop until it comes up.

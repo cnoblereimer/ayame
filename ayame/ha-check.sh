@@ -11,7 +11,7 @@
 set -uo pipefail
 
 DASHBOARD="<DASHBOARD_DOMAIN>"
-RESOURCES=("<RESOURCE_DOMAIN>") # add every resource hostname here
+RESOURCES=("<RESOURCE_DOMAIN>") # add EVERY resource hostname here
 AYAME_IP="<AYAME_PUBLIC_IP>"
 MICHI_IP="<MICHI_PUBLIC_IP>"
 SOCK="${HAPROXY_SOCK:-/opt/pangolin-cluster/haproxy/run/admin.sock}"
