@@ -38,12 +38,18 @@ passes between them (see "Private network between the nodes").
 - Postgres (`5432`) and Redis (`6379`) run on ayame and are published on
   its **tunnel address only** (`10.88.0.1`), never a public interface.
   Redis additionally requires a password.
-- HAProxy on ayame owns ports `80`, `443`, and `3000` (dashboard) on the
-  host and round-robins TCP connections across both nodes: ayame's own
-  `gerbil`/`traefik` (over the internal `pangolin` docker network) and
-  michi's (over the tunnel at `10.88.0.2`). Pangolin/traefik terminate TLS
-  themselves, so HAProxy just passes TCP through — no certs needed on the
-  load balancer.
+- **Both nodes run HAProxy**, each owning `80`, `443` and `3000` on its own
+  host and each able to serve from either node: its own `gerbil`/`traefik`
+  over the internal `pangolin` docker network, and the peer's over the
+  tunnel. Every hostname has an `A` record for both nodes, so clients
+  spread across the two and neither is a single point of ingress.
+  Pangolin/traefik terminate TLS themselves, so HAProxy just passes TCP
+  through — no certs on the load balancers.
+- **A load balancer reaches the peer at its *gerbil* ports**
+  (`10.88.0.x:8080/8444/8300`, published on the tunnel only), never at the
+  peer's public `80/443/3000`. Those belong to the peer's HAProxy, and
+  pointing one load balancer at the other lets a request bounce between
+  them indefinitely.
 - The gerbil control API (`3004/tcp`) is still published publicly on both
   hosts, because Pangolin records each node's `reachableAt` as a public
   URL. Firewall it to the peer's IP.
@@ -408,13 +414,20 @@ router on both, each proxying through its own tunnel.
    other node.
 3. Give **every resource a second target** — same internal IP and port, via
    the second site.
-4. Add a `dns.static_records` entry per resource hostname pointing at the
-   HAProxy host, on **both** nodes. Pangolin's DNS otherwise answers with a
-   single exit node's IP, chosen by hashing the hostname
-   (`selectDeterministicExitNode`), which pins clients to one node and
-   bypasses the load balancer. Static records are matched before resource
-   records and win outright — but only on an exact hostname match, so
-   there is one entry per resource.
+4. Add **two** `dns.static_records` entries per resource hostname — one per
+   node's public IP — in **both** nodes' configs, so clients land on either
+   load balancer. `getStaticRecords` returns every entry matching the name
+   and type, so two entries produce two `A` records.
+
+   Pangolin's own DNS would otherwise answer resources itself, returning an
+   `A` record for each online exit node (`server.ts:721-735`), falling back
+   to one deterministic node only when none are online. That is the
+   upstream design and it works — but it fails over only on a refused
+   connection, cannot express "draining", and keeps handing out a node that
+   is up but broken for the full TTL. Static records pointing at the load
+   balancers trade that for health-checked, drainable failover in about two
+   seconds. (Latency-based steering is *not* implemented in this version —
+   it appears twice in `server.ts` as a TODO.)
 5. Leave `websecure_front` balanced across both nodes (its default).
 
 **Then updating a node is:** drain it first, so no request is ever routed
