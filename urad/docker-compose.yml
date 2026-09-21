@@ -1,7 +1,13 @@
 name: pangolin-monitor
 services:
   monitor:
-    image: python:3.12-alpine
+    # Debian (glibc), NOT alpine. Pangolin's DNS answers AAAA queries for a
+    # dns.static_records name with NXDOMAIN rather than NODATA, and musl
+    # treats that as terminal for the whole lookup - so getaddrinfo fails
+    # with EAI_NONAME even though the A record resolved fine. glibc ignores
+    # the AAAA failure and uses the A record, which is what curl and
+    # browsers do.
+    image: python:3.12-slim
     container_name: pangolin-monitor
     restart: unless-stopped
     command: ["python", "-u", "/app/monitor.py"]

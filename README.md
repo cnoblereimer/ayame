@@ -172,12 +172,29 @@ chicken-and-egg shape, different layer. The `dns.static_records` entry in
 sync) works around it the same way `bootstrap.yml` does for Traefik: a
 hand-written record for the one hostname Pangolin's own logic never covers.
 
-**This has been observed not working.** Pangolin logged `No exit nodes
-found for resource.` followed by `NXDOMAIN for <dashboard domain>` on a
-loop, with the `static_records` entry present in the config. The same
-startup also warned that `acme` had moved out of the private config file,
-so the config schema shifted under us at some point — worth checking
-whether `dns.static_records` still lives where this config puts it.
+Resource hostnames need entries here too, for a different reason — see
+"Rolling pangolin updates".
+
+**Static-record names answer AAAA queries with NXDOMAIN, which breaks musl
+clients.** `getStaticRecords` matches on domain *and* record type, so an
+`AAAA` query for a name that only has a static `A` record matches nothing,
+falls through to the resource lookup, finds nothing, and returns NXDOMAIN —
+where it should return NODATA (NOERROR with an empty answer), since the name
+itself does exist. Resource hostnames get this right (`NODATA (NOERROR) ...
+type AAAA` appears in the log for those); static records do not.
+
+glibc ignores a failed AAAA and uses the A record, so curl and browsers
+never notice. **musl treats the NXDOMAIN as terminal for the whole lookup**
+and fails with `EAI_NONAME`, so anything running on Alpine cannot resolve
+the dashboard domain at all. That is why `urad/docker-compose.yml` pins a
+Debian-based image instead of Alpine — the monitor caught this on itself,
+reporting `gaierror: [Errno -2] Name does not resolve` for the load-balancer
+probe while both pinned probes passed.
+
+Earlier in this repo's history the `NXDOMAIN for <dashboard domain>` lines
+in pangolin's log were read as this record failing. They were not — those
+come from `getLoginPageRecordsByFullDomain`, the *login page* lookup, which
+is a separate path.
 
 ## The nameserver hostname needs an A record for both nodes
 
