@@ -11,8 +11,12 @@ services:
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
-    sysctls:
-      - net.ipv4.conf.all.src_valid_mark=1
+    # No sysctls block here: docker refuses namespaced sysctls under
+    # network_mode: host (it would be setting the host's, not the
+    # container's). wg-quick only needs src_valid_mark for fwmark-based
+    # policy routing, which a point-to-point link like this does not use.
+    # If it is ever needed, set it on the host instead:
+    #   sysctl -w net.ipv4.conf.all.src_valid_mark=1
     volumes:
       - ./wireguard:/config
       - /lib/modules:/lib/modules:ro # only needed if wireguard isn't built into the kernel
