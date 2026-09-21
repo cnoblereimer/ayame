@@ -430,6 +430,13 @@ router on both, each proxying through its own tunnel.
    it appears twice in `server.ts` as a TODO.)
 5. Leave `websecure_front` balanced across both nodes (its default).
 
+**Never restart or update both nodes at once.** Everything here assumes one
+node is always healthy: the health checks run *through* Traefik to pangolin,
+so restarting both pangolins together fails every backend's check at the
+same moment and leaves nothing to serve from. Observed live as a burst of
+`000`s with all six backends DOWN on both load balancers. Do one node,
+confirm it is green, then the other.
+
 **Then updating a node is:** drain it first, so no request is ever routed
 to a node that is about to stop. Relying on the health check alone costs a
 couple of `502`s while it notices — measured, not theoretical.
