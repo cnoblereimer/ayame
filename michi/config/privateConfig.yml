@@ -2,7 +2,10 @@ app:
   region: "region1"
   identity_provider_mode: "org"
 redis:
-  host: "<AYAME_PUBLIC_IP>"
+  # ayame's WireGuard address, not its public IP - Redis takes no password,
+  # so this link is its only access control. See README, "Private network
+  # between the nodes".
+  host: "10.88.0.1"
   port: 6379
 flags:
   enable_redis: true

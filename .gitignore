@@ -25,3 +25,7 @@ michi/cert-sync/cert-sync-key
 michi/cert-sync/cert-sync-key.pub
 michi/cert-sync/synced-certs/
 urad/data/
+ayame/wireguard/privatekey
+ayame/wireguard/publickey
+michi/wireguard/privatekey
+michi/wireguard/publickey

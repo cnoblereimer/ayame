@@ -135,6 +135,89 @@ exit node, so its Traefik config query matched no sites, it generated no
 routers, and it never claimed a domain — while looking perfectly healthy.
 The value is cached per process, so a restart is needed after renaming.
 
+## Private network between the nodes
+
+Postgres and Redis were published on ayame's public IP with a firewall rule
+allowing michi. That is one rule away from exposure, it sends database
+traffic across the public internet in cleartext, and **Redis takes no
+password at all** — it says so on startup: `Redis does not require
+authentication and is not protected by network restrictions`. Network
+reachability was the entirety of its access control.
+
+A host-level WireGuard link fixes the transport. `wireguard/wg-cluster.conf`
+in each host's folder is that host's half:
+
+| | ayame | michi |
+|---|---|---|
+| tunnel address | `10.88.0.1/30` | `10.88.0.2/30` |
+| listen port | `51821/udp` | `51821/udp` |
+
+`51821`, not `51820`, because gerbil already publishes `51820/udp` for
+Pangolin's own tunnels. `10.88.0.0/30` avoids both gerbil's `100.89.0.0/16`
+and the LAN behind urad.
+
+**Setup, on each host:**
+
+```bash
+sudo apt install -y wireguard-tools
+umask 077 && wg genkey | tee /tmp/wg-priv | wg pubkey   # keep the private, send the public
+sudo install -m 600 /dev/null /etc/wireguard/wg-cluster.conf
+sudo cp wireguard/wg-cluster.conf /etc/wireguard/wg-cluster.conf   # then fill in the keys
+sudo systemctl enable --now wg-quick@wg-cluster
+```
+
+Open the tunnel port to the peer only, then verify before changing anything
+else:
+
+```bash
+# ayame
+sudo ufw allow from <michi public IP> to any port 51821 proto udp
+# michi
+sudo ufw allow from <ayame public IP> to any port 51821 proto udp
+
+sudo wg show wg-cluster          # expect a recent handshake
+ping -c3 10.88.0.1               # from michi
+```
+
+**Then move the services onto it.** `ayame/docker-compose.yml` binds
+Postgres and Redis to `10.88.0.1` instead of every interface, and michi's
+`config.yml` / `privateConfig.yml` point at `10.88.0.1`. Once that is
+confirmed working, drop the old public firewall allowances:
+
+```bash
+# ayame - these should no longer be needed
+sudo ufw status numbered | grep -E '5432|6379'
+sudo ufw delete <number>          # highest number first
+```
+
+**The ordering trap:** binding a published port to `10.88.0.1` means docker
+cannot start those containers until the WireGuard interface exists. On
+reboot, if docker comes up first, Postgres and Redis fail to bind and the
+whole cluster is down until the interface appears. `restart: always` makes
+them retry, which usually resolves it, but make it deterministic:
+
+```bash
+sudo mkdir -p /etc/systemd/system/docker.service.d
+printf '[Unit]\nAfter=wg-quick@wg-cluster.service\nWants=wg-quick@wg-cluster.service\n' | \
+  sudo tee /etc/systemd/system/docker.service.d/wg-cluster.conf
+sudo systemctl daemon-reload
+```
+
+Test it with an actual reboot rather than assuming — this is the kind of
+thing that only shows up months later at the worst moment.
+
+**Still not covered:** HAProxy reaches michi over the public internet for
+ports 80, 443, and 3000. Port 443 is TLS end to end, but `dashboard_back`
+sends port 3000 traffic **in cleartext**. Pointing haproxy's michi server
+lines at `10.88.0.2` would fix that and remove the need for michi to
+publish those ports publicly at all — worth doing, but it changes the
+ingress path, so validate it the same way the health check was validated.
+
+**Redis still has no password.** The tunnel means it is no longer reachable
+from the internet, but anything that lands on either host can talk to it
+freely. Setting `requirepass` and the matching `redis.password` in both
+nodes' `privateConfig.yml` is the next step.
+
 ## Why `config/dynamic/bootstrap.yml` exists
 
 Pangolin never generates a Traefik router for its own admin dashboard —

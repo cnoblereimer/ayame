@@ -11,7 +11,7 @@ app:
     log_level: "info"
 
 postgres:
-    connection_string: postgresql://postgres:<POSTGRES_PASSWORD>@<AYAME_PUBLIC_IP>:5432/postgres
+    connection_string: postgresql://postgres:<POSTGRES_PASSWORD>@10.88.0.1:5432/postgres
 
 traefik:
     site_types: ["newt"] # Wireguard and local sites are not supported in clustering
