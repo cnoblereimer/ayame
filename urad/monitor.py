@@ -101,7 +101,9 @@ def record(key: str, code: int, ms: float, err: str) -> None:
     entry = checks.setdefault(
         key, {"history": deque(maxlen=HISTORY), "since": None, "last_error": ""}
     )
-    ok = code == 200
+    # 401/403 mean an auth-protected resource is being served correctly by
+    # this node; 404/503/000 are the failures that actually matter.
+    ok = 200 <= code < 400 or code in (401, 403)
     previous = entry["history"][-1]["ok"] if entry["history"] else None
     if previous is None or previous != ok:
         entry["since"] = datetime.now(timezone.utc).isoformat(timespec="seconds")

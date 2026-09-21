@@ -31,7 +31,15 @@ probe() { # host, label, [resolve-ip]
         code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
             "${args[@]}" "https://$host/")
         codes+="$code "
-        [ "$code" = "200" ] || bad=$((bad + 1))
+        # An auth-protected resource answers 401/403 to an unauthenticated
+        # probe - that is the badger middleware working, and proves this
+        # node routes the hostname. The failures that matter look different:
+        # 404 = no router (resource not homed on this node), 503 = no
+        # reachable target, 000 = node down.
+        case "$code" in
+            2* | 3* | 401 | 403) ;;
+            *) bad=$((bad + 1)) ;;
+        esac
     done
     if [ "$bad" -eq 0 ]; then
         printf '  ok    %-28s %s\n' "$label" "$n/$n"
