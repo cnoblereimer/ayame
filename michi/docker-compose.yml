@@ -27,6 +27,28 @@ services:
       retries: 12
       start_period: "15s"
 
+  # This node's own load balancer, mirroring ayame's. Both node IPs are in
+  # DNS for every hostname, so clients spread across the two and neither
+  # node is a single point of ingress - and each one health-checks both
+  # backends, so it can still serve when the other is broken or draining.
+  haproxy:
+    image: haproxy:3.4-alpine
+    container_name: haproxy
+    restart: unless-stopped
+    depends_on:
+      - gerbil
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      # Must exist and be owned by uid 99 before this starts, or haproxy
+      # cannot bind its runtime socket and crash-loops:
+      #   mkdir -p haproxy/run && sudo chown 99:99 haproxy/run
+      - ./haproxy/run:/var/run/haproxy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "3000:3000" # pangolin dashboard
+      - "8404:8404" # haproxy stats page
+
   pangolin:
     image: docker.io/fosrl/pangolin:ee-postgresql-latest
     container_name: pangolin
@@ -78,10 +100,18 @@ services:
       - 21820:21820/udp # relay
       # DNS (53/udp) is published on the pangolin service instead - see
       # its ports comment.
-      - 443:8443 # resources - haproxy on ayame connects here directly
-      - 80:80 # web - haproxy on ayame connects here directly
       - 3004:3004 # gerbil control API - needs to be reachable from ayame
-      - 3000:3000 # pangolin dashboard - haproxy on ayame connects here directly
+      # 80/443/3000 are no longer published publicly: this node runs its own
+      # haproxy now, and that owns those ports on the host. Its haproxy
+      # reaches this traefik over the internal "pangolin" docker network.
+      #
+      # These tunnel-only publishes are for AYAME's haproxy, which must
+      # reach this node's traefik DIRECTLY - pointing it at michi's public
+      # 443 would hand traffic to michi's haproxy, which can send it back to
+      # ayame, looping between the two load balancers.
+      - 10.88.0.2:8080:80
+      - 10.88.0.2:8444:8443
+      - 10.88.0.2:8300:3000
 
   traefik:
     image: docker.io/traefik:v3.7.11

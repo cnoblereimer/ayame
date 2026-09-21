@@ -134,10 +134,18 @@ services:
       - 3004:3004 # gerbil control API - needs to be reachable from michi
       # DNS (53/udp) is published on the pangolin service instead - see
       # its ports comment.
-      # 80/443/3000 are intentionally NOT published here: haproxy reaches
-      # this node over the internal "pangolin" docker network instead
-      # (gerbil:80, gerbil:8443, gerbil:3000), since haproxy already owns
-      # those ports on the host.
+      #
+      # This node's own haproxy reaches traefik over the internal "pangolin"
+      # docker network (gerbil:80, gerbil:8443, gerbil:3000), so those ports
+      # are not published publicly - haproxy owns 80/443/3000 on the host.
+      #
+      # These tunnel-only publishes are for MICHI's haproxy. It must reach
+      # this node's traefik DIRECTLY: pointing it at ayame's public 443
+      # would hand traffic to ayame's haproxy, which can round-robin it
+      # straight back to michi - an infinite loop between load balancers.
+      - 10.88.0.1:8080:80
+      - 10.88.0.1:8444:8443
+      - 10.88.0.1:8300:3000
 
   traefik:
     image: docker.io/traefik:v3.7.11

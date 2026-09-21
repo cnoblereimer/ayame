@@ -29,5 +29,4 @@ ayame/wireguard/privatekey
 ayame/wireguard/publickey
 michi/wireguard/privatekey
 michi/wireguard/publickey
-ayame/wireguard/privatekey
-michi/wireguard/privatekey
+michi/haproxy/run/
