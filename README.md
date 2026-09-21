@@ -31,27 +31,26 @@ correctly-built variant for this setup.
 
 ## Topology
 
-Ayame and michi only see each other over the **public internet** in this
-setup, so:
+Ayame and michi have no shared private network of their own, so one is
+built: a **WireGuard link on `10.88.0.0/30`** carries everything that
+passes between them (see "Private network between the nodes").
 
-- Postgres (`5432`) and Redis (`6379`) are published on ayame's public IP so
-  michi's `pangolin` container can reach them. **Firewall these to only
-  accept connections from michi's IP** (e.g. `ufw allow from <MICHI_PUBLIC_IP>
-  to any port 5432,6379,3004 proto tcp`), then deny them from everywhere
-  else — these ports and the gerbil control API should never be open to the
-  public internet.
+- Postgres (`5432`) and Redis (`6379`) run on ayame and are published on
+  its **tunnel address only** (`10.88.0.1`), never a public interface.
+  Redis additionally requires a password.
 - HAProxy on ayame owns ports `80`, `443`, and `3000` (dashboard) on the
   host and round-robins TCP connections across both nodes: ayame's own
-  `gerbil`/`traefik` (reached over the internal `pangolin` docker network)
-  and michi's `gerbil`/`traefik` (reached over the public internet on the
-  ports michi publishes). Pangolin/traefik terminate TLS themselves, so
-  HAProxy just passes TCP through — no certs needed on the load balancer.
+  `gerbil`/`traefik` (over the internal `pangolin` docker network) and
+  michi's (over the tunnel at `10.88.0.2`). Pangolin/traefik terminate TLS
+  themselves, so HAProxy just passes TCP through — no certs needed on the
+  load balancer.
+- The gerbil control API (`3004/tcp`) is still published publicly on both
+  hosts, because Pangolin records each node's `reachableAt` as a public
+  URL. Firewall it to the peer's IP.
 - WireGuard (`51820/udp`), the relay (`21820/udp`), and DNS (`53/udp`) are
   **not** load balanced — each node is its own WireGuard exit node, so
   clients/sites connect to whichever node's public IP they're configured
   for directly.
-- The gerbil control API (`3004/tcp`) is published on both hosts so the two
-  nodes can talk to each other directly; it does not go through HAProxy.
 
 ## Placeholders to fill in before deploying
 
@@ -62,6 +61,7 @@ setup, so:
 | `<CLUSTER_SECRET>` | `ayame/config/config.yml`, `michi/config/config.yml` | same random value on **both** nodes — generate once with `openssl rand -hex 32` |
 | `<CONTACT_EMAIL>` | `ayame/config/privateConfig.yml`, `michi/config/privateConfig.yml` | email for ACME/Let's Encrypt |
 | `POSTGRES_PASSWORD` | `ayame/.env` (copy from `ayame/.env.example`) and `michi/config/config.yml`'s connection string | shared DB password |
+| `REDIS_PASSWORD` | `ayame/.env` **and** `michi/.env` (copy from each `.env.example`) | must be **identical** on both — ayame's Redis enforces it, michi's pangolin presents it |
 | `pangolin.example.com` | `ayame/config/config.yml`, `michi/config/config.yml` | your real dashboard domain |
 | `<AYAME_SSH_PORT>` | `michi/cert-sync/sync-dashboard-cert.sh` | ayame's SSH port, if not the default `22` |
 | `<AYAME_SSH_USER>` | `michi/cert-sync/sync-dashboard-cert.sh` | a non-root user on ayame with sudo — root login itself may be disabled (`PermitRootLogin no`), so the sync key authenticates as this user and a scoped sudoers rule lets it run the one forced-command script as root |
@@ -76,8 +76,9 @@ setup, so:
    haproxy runtime socket directory (`mkdir -p haproxy/run && sudo chown
    99:99 haproxy/run` — haproxy crash-loops without it, see "Rolling
    pangolin updates"), then `docker compose up -d`.
-2. Open the firewall rules noted above so michi can reach ayame's Postgres,
-   Redis, and gerbil control API.
+2. Set up the WireGuard link between the nodes ("Private network between
+   the nodes") before starting anything that binds `10.88.0.1`, and open
+   `3004/tcp` to the peer.
 3. On **michi**: copy the contents of `michi/` to the host's deployment
    directory (same path convention as ayame), fill in its placeholders
    (same `<CLUSTER_SECRET>` and `POSTGRES_PASSWORD` as ayame), drop the
